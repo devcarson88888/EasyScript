@@ -1,4 +1,4 @@
-use easyscript::{lex, Token, TokenKind};
+use easyscript_lexer::{lex, Token, TokenKind};
 
 fn token(kind: TokenKind, lexeme: &str, line: usize, column: usize) -> Token {
     Token {

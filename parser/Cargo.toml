@@ -1,0 +1,7 @@
+[package]
+name = "easyscript-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+easyscript-lexer = { path = "../lexer" }

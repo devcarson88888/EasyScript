@@ -1,12 +1,12 @@
-mod aot;
-
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use easyscript_compiler::compile_to_elf;
 use easyscript_interpreter::execute;
+use easyscript_parser::{lex, parse_tokens, Program};
 
 fn main() -> ExitCode {
     let mut arguments = env::args_os();
@@ -45,7 +45,7 @@ fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     };
                     let output_path = Path::new(".").join(output_name);
-                    match aot::compile_to_elf(&program, &output_path) {
+                    match compile_to_elf(&program, &output_path) {
                         Ok(()) => {
                             println!("Build success, output: ./{}", output_name.to_string_lossy());
                             ExitCode::SUCCESS
@@ -111,7 +111,7 @@ fn read_source(source_path: &OsStr) -> Result<String, String> {
         .map_err(|error| format!("Could not read {}: {error}", source_path.to_string_lossy()))
 }
 
-fn parse_source(source: &str) -> Result<easyscript::Program, String> {
-    let tokens = easyscript::lex(source).map_err(|error| error.to_string())?;
-    easyscript::parse_tokens(tokens).map_err(|error| error.to_string())
+fn parse_source(source: &str) -> Result<Program, String> {
+    let tokens = lex(source).map_err(|error| error.to_string())?;
+    parse_tokens(tokens).map_err(|error| error.to_string())
 }

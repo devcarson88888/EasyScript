@@ -1,5 +1,5 @@
-use easyscript::ast::{BinaryOperator, ExprKind, Statement, TopLevelItem};
-use easyscript::{parse, validate_mutability, TokenKind};
+use easyscript_parser::ast::{BinaryOperator, ExprKind, Statement, TopLevelItem};
+use easyscript_parser::{parse, validate_mutability, TokenKind};
 
 const IF_ELSE: &str = r#"int main() {
   a = int -> 40;
@@ -258,7 +258,7 @@ fn parses_logical_operators_with_the_requested_precedence() {
     assert!(matches!(
         left.kind,
         ExprKind::Unary {
-            operator: easyscript::ast::UnaryOperator::Not,
+            operator: easyscript_parser::ast::UnaryOperator::Not,
             ..
         }
     ));
@@ -323,7 +323,7 @@ fn logical_not_binds_tighter_than_arithmetic_and_or_binds_lowest() {
     assert!(matches!(
         left.kind,
         ExprKind::Unary {
-            operator: easyscript::ast::UnaryOperator::Not,
+            operator: easyscript_parser::ast::UnaryOperator::Not,
             ..
         }
     ));
@@ -586,7 +586,7 @@ fn parses_lists_tuples_nesting_indexes_methods_and_len() {
     };
     assert!(matches!(
         index_assignment.target.kind,
-        easyscript::ast::AssignmentTargetKind::Index { .. }
+        easyscript_parser::ast::AssignmentTargetKind::Index { .. }
     ));
     assert_eq!(
         (index_assignment.target.line, index_assignment.target.column),
@@ -726,7 +726,7 @@ fn preserves_lexer_errors_through_the_parser_api() {
 
 #[test]
 fn lexer_still_recognizes_addition_sample_tokens() {
-    let tokens = easyscript::lex("A+B").unwrap();
+    let tokens = easyscript_parser::lex("A+B").unwrap();
     assert_eq!(tokens[1].kind, TokenKind::Plus);
 }
 
@@ -888,13 +888,13 @@ class Person {
     };
     assert_eq!(person.name, "Person");
     assert_eq!(person.members.len(), 2);
-    let easyscript::ast::ClassMember::Function(init) = &person.members[0] else {
+    let easyscript_parser::ast::ClassMember::Function(init) = &person.members[0] else {
         panic!("expected init method");
     };
     assert_eq!(init.parameters[0].ty.name, "str");
     assert!(matches!(
         person.members[1],
-        easyscript::ast::ClassMember::Function(_)
+        easyscript_parser::ast::ClassMember::Function(_)
     ));
 }
 
@@ -1075,9 +1075,9 @@ fn parses_gc_control_statements_and_preserves_positions() {
     assert_eq!(
         operations,
         vec![
-            (easyscript::ast::GcOperation::Collect, 2, 5),
-            (easyscript::ast::GcOperation::Pause, 3, 5),
-            (easyscript::ast::GcOperation::Resume, 4, 5),
+            (easyscript_parser::ast::GcOperation::Collect, 2, 5),
+            (easyscript_parser::ast::GcOperation::Pause, 3, 5),
+            (easyscript_parser::ast::GcOperation::Resume, 4, 5),
         ]
     );
 }
@@ -1236,16 +1236,16 @@ int main() {}
     assert_eq!((color.variants[0].line, color.variants[0].column), (2, 5));
     assert!(matches!(
         color.variants[0].payload,
-        easyscript::ast::EnumVariantPayload::Unit
+        easyscript_parser::ast::EnumVariantPayload::Unit
     ));
     assert!(matches!(
         &color.variants[1].payload,
-        easyscript::ast::EnumVariantPayload::Tuple(types)
+        easyscript_parser::ast::EnumVariantPayload::Tuple(types)
             if types.len() == 1 && types[0].name == "u8"
     ));
     assert!(matches!(
         &color.variants[2].payload,
-        easyscript::ast::EnumVariantPayload::Struct(fields)
+        easyscript_parser::ast::EnumVariantPayload::Struct(fields)
             if fields.iter().map(|field| field.name.as_str()).collect::<Vec<_>>()
                 == vec!["r", "g", "b"]
     ));
@@ -1255,7 +1255,7 @@ int main() {}
     assert_eq!(maybe.generic_parameters[0].name, "T");
     assert!(matches!(
         &maybe.variants[1].payload,
-        easyscript::ast::EnumVariantPayload::Tuple(types)
+        easyscript_parser::ast::EnumVariantPayload::Tuple(types)
             if types[0].name == "T"
     ));
 }

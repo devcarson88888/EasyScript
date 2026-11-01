@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use easyscript::ast::{
+use easyscript_parser::ast::{
     AssignmentTargetKind, BinaryOperator, Expr, ExprKind, Function, Program, Statement,
     TopLevelItem, UnaryOperator,
 };
@@ -138,7 +138,7 @@ fn generate_rust(program: &Program) -> Result<String, String> {
 }
 
 fn validate_block(
-    block: &easyscript::Block,
+    block: &easyscript_parser::Block,
     imported_std: bool,
     functions: &HashMap<&str, usize>,
 ) -> Result<(), String> {
@@ -261,7 +261,7 @@ fn write_function(
 
 fn write_block(
     source: &mut String,
-    block: &easyscript::Block,
+    block: &easyscript_parser::Block,
     functions: &HashMap<&str, usize>,
 ) -> Result<(), String> {
     for statement in &block.statements {

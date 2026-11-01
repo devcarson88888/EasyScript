@@ -1,2 +1,5 @@
 /target/
 /lexer/target/
+/parser/target/
+/interpreter/target/
+/compiler/target/

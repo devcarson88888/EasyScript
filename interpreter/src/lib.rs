@@ -1,4 +1,4 @@
-use easyscript::ast::*;
+use easyscript_parser::ast::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
@@ -1778,13 +1778,13 @@ pub fn execute(program: &Program) -> Result<RunResult, RuntimeError> {
 }
 
 pub fn run_source(source: &str) -> Result<RunResult, RunError> {
-    let program = easyscript::parse(source).map_err(RunError::Parse)?;
+    let program = easyscript_parser::parse(source).map_err(RunError::Parse)?;
     execute(&program).map_err(RunError::Runtime)
 }
 
 #[derive(Debug)]
 pub enum RunError {
-    Parse(easyscript::ParseError),
+    Parse(easyscript_parser::ParseError),
     Runtime(RuntimeError),
 }
 
