@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="EasyScript 语言介绍、命令参考、语法指南与完整示例。">
+  <title>EasyScript 文档</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --surface: #111a2e;
+      --surface-raised: #17233b;
+      --text: #e6edf8;
+      --muted: #9aabc5;
+      --line: #283650;
+      --accent: #6ee7d2;
+      --blue: #8db4ff;
+      --purple: #c4a7ff;
+      --yellow: #f6d889;
+      --green: #a7e3a1;
+      --red: #ff9a9a;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(ellipse at 75% -15%, rgb(77 118 201 / 18%), transparent 48rem),
+        var(--bg);
+      color: var(--text);
+      font: 16px/1.7 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 780px);
+      gap: 64px;
+      width: min(1120px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 28px;
+      align-self: start;
+      padding: 38px 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      margin-bottom: 32px;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 750;
+      letter-spacing: -.03em;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid rgb(110 231 210 / 45%);
+      border-radius: 10px;
+      background: rgb(110 231 210 / 9%);
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .nav-label {
+      margin: 0 0 10px;
+      color: #71819d;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    nav { display: grid; gap: 5px; }
+
+    nav a {
+      padding: 7px 10px;
+      border-left: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    nav a:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    main { min-width: 0; padding: 68px 0 96px; }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 12px 0 18px;
+      font-size: clamp(38px, 7vw, 58px);
+      line-height: 1.08;
+      letter-spacing: -.055em;
+    }
+
+    .lead {
+      max-width: 650px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 24px;
+    }
+
+    .badge {
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgb(255 255 255 / 2%);
+      color: #c4d2e8;
+      font-size: 12px;
+    }
+
+    section {
+      margin-top: 58px;
+      padding-top: 26px;
+      border-top: 1px solid var(--line);
+      scroll-margin-top: 24px;
+    }
+
+    h2 {
+      margin: 0 0 15px;
+      font-size: 24px;
+      letter-spacing: -.035em;
+    }
+
+    h3 {
+      margin: 27px 0 8px;
+      font-size: 16px;
+    }
+
+    p, li { color: var(--muted); }
+    p { margin: 10px 0 16px; }
+    ul { padding-left: 21px; }
+    li { padding: 3px 0; }
+
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    :not(pre) > code {
+      padding: 2px 6px;
+      border: 1px solid #26334d;
+      border-radius: 5px;
+      background: #111a2e;
+      color: #b7d5ff;
+      font-size: .9em;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 14px 0 20px;
+      padding: 18px 20px;
+      border: 1px solid #26334d;
+      border-radius: 12px;
+      background: #090e1b;
+      color: #dce7f7;
+      font-size: 13px;
+      line-height: 1.75;
+      tab-size: 4;
+    }
+
+    .kw { color: var(--purple); }
+    .type { color: var(--blue); }
+    .rule { color: var(--accent); }
+    .str { color: var(--green); }
+    .num { color: var(--yellow); }
+    .comment { color: #7788a4; font-style: italic; }
+    .fn { color: #f1c98a; }
+
+    .callout {
+      margin: 20px 0;
+      padding: 15px 18px;
+      border: 1px solid rgb(246 216 137 / 32%);
+      border-left: 3px solid var(--yellow);
+      border-radius: 9px;
+      background: rgb(246 216 137 / 6%);
+      color: #e8d9ae;
+    }
+
+    .callout strong { color: var(--yellow); }
+
+    .io-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .io-card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+
+    .io-card code { color: var(--accent); }
+    .io-card p { margin: 7px 0 0; font-size: 14px; }
+
+    .footer {
+      margin-top: 64px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: #71819d;
+      font-size: 13px;
+    }
+
+    @media (max-width: 760px) {
+      .layout {
+        display: block;
+        width: min(100% - 32px, 680px);
+      }
+
+      .sidebar {
+        position: static;
+        padding: 20px 0 0;
+      }
+
+      .brand { margin-bottom: 14px; }
+
+      nav {
+        display: flex;
+        overflow-x: auto;
+        gap: 5px;
+        padding-bottom: 8px;
+      }
+
+      .nav-label { display: none; }
+
+      nav a {
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 12px;
+      }
+
+      main { padding: 42px 0 64px; }
+      .lead { font-size: 16px; }
+      section { margin-top: 42px; }
+      .io-grid { grid-template-columns: 1fr; }
+      pre { padding: 15px; font-size: 12px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" aria-label="文档导航">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">&lt;/&gt;</span>
+        <span>EasyScript 文档</span>
+      </a>
+      <p class="nav-label">指南</p>
+      <nav>
+        <a href="#intro">项目介绍</a>
+        <a href="#commands">命令参考</a>
+        <a href="#syntax">语法概要</a>
+        <a href="#io">规则 IO</a>
+        <a href="#example">完整示例</a>
+      </nav>
+    </aside>
+
+    <main id="top">
+      <header>
+        <div class="eyebrow">Language guide</div>
+        <h1>EasyScript</h1>
+        <p class="lead">一门自制编程语言，提供调试解释执行与 AOT 编译两种运行方式。本文档介绍常用命令、基础语法和一个完整的 <code>.es</code> 示例。</p>
+        <div class="badges" aria-label="项目特性">
+          <span class="badge">Rust 实现</span>
+          <span class="badge">debug 解释执行</span>
+          <span class="badge">build AOT 编译</span>
+          <span class="badge">.es 源文件</span>
+        </div>
+      </header>
+
+      <section id="intro">
+        <h2>项目介绍</h2>
+        <p>EasyScript 将自定义语法解析后交由运行时执行，也可以通过 AOT 后端生成并编译目标程序。调试脚本使用 <code>debug</code>；将脚本编译为可执行文件使用 <code>build</code>。</p>
+        <p>从仓库根目录运行命令时，可以使用 <code>examples/hello.es</code> 作为示例源文件。编译后端所支持的目标平台由当前版本的编译器实现决定。</p>
+      </section>
+
+      <section id="commands">
+        <h2>命令参考</h2>
+        <h3>解释执行</h3>
+        <pre><code>easyscript debug example.es</code></pre>
+        <p>读取并解释执行 <code>example.es</code>，适合快速运行和调试。</p>
+        <h3>AOT 编译</h3>
+        <pre><code>easyscript build example.es</code></pre>
+        <p>将源文件编译为可执行程序。成功后按 CLI 提示运行生成的程序；当前仓库的 AOT 后端目标是 Linux x86-64 ELF。</p>
+      </section>
+
+      <section id="syntax">
+        <h2>语法概要</h2>
+        <h3>程序入口</h3>
+        <p>程序需要提供 <code>int main()</code> 入口。主函数内编写运行逻辑，并可使用 <code>return code -&gt; 0;</code> 返回退出码。</p>
+        <pre><code><span class="kw">int</span> <span class="fn">main</span>() {
+    <span class="kw">return</span> code -&gt; <span class="num">0</span>;
+}</code></pre>
+
+        <h3>变量赋值</h3>
+        <p>使用 <code>变量名 = 类型 -&gt; 初始值</code> 声明并赋值，例如：</p>
+        <pre><code>i = <span class="type">int</span> -&gt; <span class="num">1</span>;</code></pre>
+
+        <h3>条件与循环</h3>
+        <p><code>if</code> 根据条件执行代码块；可添加 <code>else</code> 分支。<code>while</code> 在条件成立时重复执行代码块。</p>
+        <pre><code><span class="kw">if</span> (i &gt; <span class="num">0</span>) {
+    i = i - <span class="num">1</span>;
+} <span class="kw">else</span> {
+    i = <span class="type">int</span> -&gt; <span class="num">1</span>;
+}
+
+<span class="kw">while</span> (i &lt; <span class="num">3</span>) {
+    i = <span class="type">int</span> -&gt; i + <span class="num">1</span>;
+}</code></pre>
+
+        <h3>自定义函数</h3>
+        <p>使用 <code>def</code> 定义函数。参数可标注类型或默认值，函数体由大括号包围。</p>
+        <pre><code><span class="kw">def</span> <span class="fn">greet</span>(name=<span class="type">std</span>) {
+    <span class="rule">rules!</span> write -&gt; name
+    <span class="rule">rules!</span> output -&gt; a
+}</code></pre>
+      </section>
+
+      <section id="io">
+        <h2><code>rules!</code> 输入与输出规则</h2>
+        <p>导入标准库后，使用以下规则通过全局变量 <code>a</code> 暂存并输出内容：</p>
+        <div class="io-grid">
+          <article class="io-card">
+            <code>rules! write -&gt; x</code>
+            <p>不直接打印；将表达式 <code>x</code> 的值存入全局变量 <code>a</code>。</p>
+          </article>
+          <article class="io-card">
+            <code>rules! output -&gt; a</code>
+            <p>读取全局变量 <code>a</code> 的内容并输出到终端。</p>
+          </article>
+        </div>
+        <div class="callout" role="note">
+          <strong>重要提醒：</strong>请将 <code>write</code> 和 <code>output</code> 成对使用：先写入，再输出。单独执行 <code>output</code> 时，<code>a</code> 可能尚未有效赋值，存在隐藏逻辑 bug。
+        </div>
+        <p>使用 <code>rules!</code> IO 前需导入标准库：</p>
+        <pre><code><span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;</code></pre>
+      </section>
+
+      <section id="example">
+        <h2>完整示例：<code>example.es</code></h2>
+        <p>下面的程序定义输出函数，并使用 <code>while</code> 循环与 <code>if/else</code> 分支逐次输出消息。每次输出前都会先通过 <code>write</code> 写入内容。</p>
+        <pre><code><span class="kw">active</span> system linux;
+<span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;
+
+<span class="kw">def</span> <span class="fn">println</span>(value=<span class="type">std</span>) {
+    <span class="rule">rules!</span> write -&gt; value
+    <span class="rule">rules!</span> output -&gt; a
+}
+
+<span class="kw">int</span> <span class="fn">main</span>() {
+    i = <span class="type">int</span> -&gt; <span class="num">1</span>;
+    <span class="kw">while</span> (i &lt;= <span class="num">3</span>) {
+        <span class="kw">if</span> (i == <span class="num">2</span>) {
+            println(<span class="str">"middle"</span>);
+        } <span class="kw">else</span> {
+            println(<span class="str">"count"</span>);
+        }
+        i = <span class="type">int</span> -&gt; i + <span class="num">1</span>;
+    }
+    <span class="kw">return</span> code -&gt; <span class="num">0</span>;
+}
+<span class="kw">stop</span>;</code></pre>
+        <p>保存为 <code>example.es</code> 后，可用上方的 <code>debug</code> 命令解释执行，或用 <code>build</code> 命令进行 AOT 编译。</p>
+      </section>
+
+      <footer class="footer">
+        EasyScript · 语言文档 · 本页面为独立静态 HTML，可直接在浏览器打开。
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
