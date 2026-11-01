@@ -63,6 +63,7 @@ impl Scope {
 #[derive(Clone)]
 pub enum Value {
     Null,
+    StdLibrary,
     Number(i64),
     String(String),
     Boolean(bool),
@@ -127,7 +128,6 @@ pub enum Callable {
 
 #[derive(Clone, Copy)]
 pub enum NativeFunction {
-    Print { newline: bool },
     Len,
     Range,
     Int,
@@ -144,6 +144,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Null => f.write_str("None"),
+            Self::StdLibrary => f.write_str("<std library>"),
             Self::Number(value) => write!(f, "{value}"),
             Self::String(value) => f.write_str(value),
             Self::Boolean(value) => write!(f, "{value}"),
@@ -272,6 +273,7 @@ pub struct Interpreter {
     globals: Env,
     output: Vec<String>,
     steps: usize,
+    std_imported: bool,
 }
 
 impl Default for Interpreter {
@@ -284,8 +286,6 @@ impl Interpreter {
     pub fn new() -> Self {
         let globals = Scope::new(None);
         for (name, native) in [
-            ("print", NativeFunction::Print { newline: false }),
-            ("println", NativeFunction::Print { newline: true }),
             ("len", NativeFunction::Len),
             ("range", NativeFunction::Range),
             ("int", NativeFunction::Int),
@@ -301,12 +301,14 @@ impl Interpreter {
             globals,
             output: Vec::new(),
             steps: 0,
+            std_imported: false,
         }
     }
 
     pub fn execute(&mut self, program: &Program) -> Result<RunResult, RuntimeError> {
         self.output.clear();
         self.steps = 0;
+        self.std_imported = false;
         let mut entry_point = None;
         for item in &program.items {
             match item {
@@ -339,6 +341,10 @@ impl Interpreter {
                     definition.name.clone(),
                     Value::ClassType(definition.clone()),
                 ),
+                TopLevelItem::Import(import) if import.library == "std" => {
+                    self.std_imported = true;
+                    Scope::define(&self.globals, "std", Value::StdLibrary);
+                }
                 TopLevelItem::Header(_) | TopLevelItem::Import(_) | TopLevelItem::Stop(_) => {}
                 TopLevelItem::Statement(statement) => {
                     return Err(runtime_error(
@@ -465,6 +471,12 @@ impl Interpreter {
             Statement::Stop(_) => Ok(Flow::Stop),
             Statement::Rules(statement) => {
                 if let (Some(operation), Some(value)) = (&statement.operation, &statement.value) {
+                    if !self.std_imported {
+                        return Err(runtime_error(
+                            (statement.line, statement.column),
+                            "`rules!` IO commands require `from library import std;`",
+                        ));
+                    }
                     let value = self.eval(value, environment)?;
                     match operation.as_str() {
                         "write" => self.output.push(value.to_string()),
@@ -913,18 +925,6 @@ impl Interpreter {
         at: (usize, usize),
     ) -> Result<Value, RuntimeError> {
         match function {
-            NativeFunction::Print { newline } => {
-                let mut line = arguments
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                if newline {
-                    line.push('\n');
-                }
-                self.output.push(line);
-                Ok(Value::Null)
-            }
             NativeFunction::Len => {
                 expect_argument_count(&arguments, 1, at)?;
                 let length = match &arguments[0] {
@@ -1436,6 +1436,7 @@ impl Value {
     fn truthy(&self) -> bool {
         match self {
             Self::Null => false,
+            Self::StdLibrary => true,
             Self::Boolean(value) => *value,
             Self::Number(value) => *value != 0,
             Self::String(value) => !value.is_empty(),
@@ -1450,6 +1451,7 @@ impl Value {
     fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "null",
+            Self::StdLibrary => "std library",
             Self::Number(_) => "number",
             Self::String(_) => "string",
             Self::Boolean(_) => "boolean",

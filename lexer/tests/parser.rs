@@ -440,7 +440,7 @@ stop;
 }
 
 #[test]
-fn requires_one_main_only_declarations_and_semicolon_terminated_simple_statements() {
+fn requires_one_main_and_only_allows_declarations_at_top_level() {
     let missing_main = parse("def helper() {}\n").unwrap_err();
     assert!(missing_main
         .message
@@ -453,16 +453,62 @@ fn requires_one_main_only_declarations_and_semicolon_terminated_simple_statement
     assert_eq!((top_level_code.line, top_level_code.column), (1, 1));
     assert!(top_level_code.message.contains("only"));
 
-    let missing_terminator =
-        parse("int main() {\n    println(\"missing semicolon\")\n}\n").unwrap_err();
-    assert_eq!((missing_terminator.line, missing_terminator.column), (3, 1));
-    assert!(missing_terminator.message.contains("expected `;`"));
+    let newline_terminated =
+        parse("int main() {\n    println(\"newline terminator\")\n}\n").unwrap();
+    assert!(matches!(
+        &newline_terminated.items[0],
+        TopLevelItem::Function(function)
+            if matches!(function.body.statements.as_slice(), [Statement::Expression(_)])
+    ));
 
     let misplaced_stop = parse("int main() {}\nstop;\ndef later() {}\n").unwrap_err();
     assert!(misplaced_stop.message.contains("final source marker"));
 
     let inner_stop = parse("int main() { stop; }").unwrap_err();
     assert!(inner_stop.message.contains("end of the source"));
+}
+
+#[test]
+fn accepts_semicolons_or_newlines_and_parses_std_io_default_binding() {
+    let semicolon_source = r#"active system linux;
+from library import std;
+def println(a=std) {
+    rules! write -> a;
+    rules! output -> a;
+}
+int main() {
+    println("Hello World!\n");
+    return code -> 0;
+}
+stop;
+"#;
+    let newline_source = r#"active system linux
+from library import std
+def println(a=std) {
+    rules! write -> a
+    rules! output -> a
+}
+int main() {
+    println("Hello World!\n")
+    return code -> 0
+}
+stop
+"#;
+
+    for source in [semicolon_source, newline_source] {
+        let program = parse(source).unwrap();
+        let TopLevelItem::Function(function) = &program.items[2] else {
+            panic!("expected println function")
+        };
+        assert_eq!(
+            function.parameters[0]
+                .default_value
+                .as_ref()
+                .map(|value| &value.kind),
+            Some(&ExprKind::Identifier("std".to_owned()))
+        );
+        assert_eq!(program.items.len(), 5);
+    }
 }
 
 #[test]

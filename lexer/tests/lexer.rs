@@ -83,6 +83,22 @@ fn lexes_addition_source() {
 }
 
 #[test]
+fn preserves_line_locations_when_semicolons_are_omitted() {
+    let tokens =
+        lex("active system linux\nfrom library import std\nint main() {\n}\nstop").unwrap();
+    assert_eq!((tokens[0].line, tokens[0].column), (1, 1));
+    assert_eq!((tokens[3].line, tokens[3].column), (2, 1));
+    assert_eq!((tokens[7].line, tokens[7].column), (3, 1));
+    assert_eq!(
+        (tokens.last().unwrap().line, tokens.last().unwrap().column),
+        (5, 1)
+    );
+    assert!(!tokens
+        .iter()
+        .any(|token| token.kind == TokenKind::Semicolon));
+}
+
+#[test]
 fn lexes_container_brackets_and_member_access_punctuation() {
     let tokens = lex("[] [0] arr.append(1) (1, 2)").unwrap();
     assert_eq!(

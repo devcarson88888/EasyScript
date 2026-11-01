@@ -136,7 +136,7 @@ impl Parser {
 
     fn parse_stop_declaration(&mut self) -> Result<crate::ast::StopStatement, ParseError> {
         let start = self.expect(&TokenKind::Stop, "`stop`")?;
-        self.expect(&TokenKind::Semicolon, "`;` after the final `stop` marker")?;
+        self.consume_statement_terminator("`;` after the final `stop` marker")?;
         Ok(crate::ast::StopStatement {
             line: start.line,
             column: start.column,
@@ -159,7 +159,7 @@ impl Parser {
                 ))
             }
         };
-        self.expect(&TokenKind::Semicolon, "`;` after the system declaration")?;
+        self.consume_statement_terminator("`;` after the system declaration")?;
         Ok(HeaderDeclaration {
             line: start.line,
             column: start.column,
@@ -184,7 +184,7 @@ impl Parser {
                 ))
             }
         };
-        self.expect(&TokenKind::Semicolon, "`;` after the library import")?;
+        self.consume_statement_terminator("`;` after the library import")?;
         Ok(ImportDeclaration {
             line: start.line,
             column: start.column,
@@ -262,7 +262,7 @@ impl Parser {
                 name: field_name,
                 ty,
             });
-            self.expect(&TokenKind::Semicolon, "`;` after the structure field")?;
+            self.consume_statement_terminator("`;` after the structure field")?;
         }
         self.expect(&TokenKind::RightBrace, "`}` after structure fields")?;
         Ok(StructDefinition {
@@ -395,6 +395,12 @@ impl Parser {
                 let ty = self.parse_type()?;
                 let default_value = if self.matches(&TokenKind::Arrow) {
                     Some(self.parse_expression()?)
+                } else if ty.name == "std" {
+                    Some(Expr {
+                        line: ty.line,
+                        column: ty.column,
+                        kind: ExprKind::Identifier("std".to_owned()),
+                    })
                 } else {
                     None
                 };
@@ -563,7 +569,7 @@ impl Parser {
         let ty = self.parse_type()?;
         self.expect(&TokenKind::Arrow, "`->` between assignment type and value")?;
         let value = self.parse_expression()?;
-        self.expect(&TokenKind::Semicolon, "`;` after the assignment")?;
+        self.consume_statement_terminator("`;` after the assignment")?;
         Ok(Statement::Assignment(AssignmentStatement {
             line: name_token.line,
             column: name_token.column,
@@ -592,7 +598,7 @@ impl Parser {
         }
         let line = expression.line;
         let column = expression.column;
-        self.expect(&TokenKind::Semicolon, "`;` after the function call")?;
+        self.consume_statement_terminator("`;` after the function call")?;
         Ok(Statement::Expression(ExpressionStatement {
             line,
             column,
@@ -792,6 +798,7 @@ impl Parser {
         self.expect(&TokenKind::Code, "`code` after `return`")?;
         self.expect(&TokenKind::Arrow, "`->` after `return code`")?;
         let value = self.parse_expression()?;
+        self.consume_statement_terminator("`;` after the return value")?;
         Ok(Statement::Return(ReturnStatement {
             line: start.line,
             column: start.column,
@@ -804,7 +811,7 @@ impl Parser {
         if self.loop_depth == 0 {
             return Err(self.error_at(&start, "`break` is only valid inside a loop"));
         }
-        self.expect(&TokenKind::Semicolon, "`;` after `break`")?;
+        self.consume_statement_terminator("`;` after `break`")?;
         Ok(Statement::Break(BreakStatement {
             line: start.line,
             column: start.column,
@@ -816,7 +823,7 @@ impl Parser {
         if self.loop_depth == 0 {
             return Err(self.error_at(&start, "`continue` is only valid inside a loop"));
         }
-        self.expect(&TokenKind::Semicolon, "`;` after `continue`")?;
+        self.consume_statement_terminator("`;` after `continue`")?;
         Ok(Statement::Continue(ContinueStatement {
             line: start.line,
             column: start.column,
@@ -834,7 +841,7 @@ impl Parser {
         }
         self.expect(&TokenKind::Arrow, "`->` after the rules operation")?;
         let value = self.parse_expression()?;
-        self.expect(&TokenKind::Semicolon, "`;` after the rules command")?;
+        self.consume_statement_terminator("`;` after the rules command")?;
 
         Ok(Statement::Rules(RulesStatement {
             line: start.line,
@@ -867,7 +874,7 @@ impl Parser {
                 ))
             }
         };
-        self.expect(&TokenKind::Semicolon, "`;` after the GC operation")?;
+        self.consume_statement_terminator("`;` after the GC operation")?;
         Ok(Statement::GcControl(GcControlStatement {
             line: start.line,
             column: start.column,
@@ -891,7 +898,7 @@ impl Parser {
     fn parse_spawn(&mut self) -> Result<Statement, ParseError> {
         let start = self.expect(&TokenKind::Spawn, "`spawn`")?;
         let name = self.expect_identifier("a thread name after `spawn`")?;
-        self.expect(&TokenKind::Semicolon, "`;` after `spawn`")?;
+        self.consume_statement_terminator("`;` after `spawn`")?;
         Ok(Statement::Spawn(SpawnStatement {
             line: start.line,
             column: start.column,
@@ -902,7 +909,7 @@ impl Parser {
     fn parse_join(&mut self) -> Result<Statement, ParseError> {
         let start = self.expect(&TokenKind::Join, "`join`")?;
         let name = self.expect_identifier("a thread name after `join`")?;
-        self.expect(&TokenKind::Semicolon, "`;` after `join`")?;
+        self.consume_statement_terminator("`;` after `join`")?;
         Ok(Statement::Join(JoinStatement {
             line: start.line,
             column: start.column,
@@ -1328,6 +1335,27 @@ impl Parser {
     fn expect(&mut self, kind: &TokenKind, description: &str) -> Result<Token, ParseError> {
         if self.check(kind) {
             Ok(self.advance().expect("matched token"))
+        } else {
+            Err(self.error(format!("expected {description}")))
+        }
+    }
+
+    fn consume_statement_terminator(&mut self, description: &str) -> Result<(), ParseError> {
+        if self.matches(&TokenKind::Semicolon) {
+            return Ok(());
+        }
+        let previous_line = self
+            .current
+            .checked_sub(1)
+            .and_then(|index| self.tokens.get(index))
+            .map(|token| token.line);
+        let next_starts_line = self
+            .tokens
+            .get(self.current)
+            .zip(previous_line)
+            .is_some_and(|(next, previous_line)| next.line > previous_line);
+        if self.is_at_end() || self.check(&TokenKind::RightBrace) || next_starts_line {
+            Ok(())
         } else {
             Err(self.error(format!("expected {description}")))
         }
