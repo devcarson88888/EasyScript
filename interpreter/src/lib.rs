@@ -307,19 +307,21 @@ impl Interpreter {
     pub fn execute(&mut self, program: &Program) -> Result<RunResult, RuntimeError> {
         self.output.clear();
         self.steps = 0;
+        let mut entry_point = None;
         for item in &program.items {
             match item {
                 TopLevelItem::Function(function) => {
-                    if !function.is_entry {
-                        Scope::define(
-                            &self.globals,
-                            function.name.clone(),
-                            Value::Callable(Rc::new(Callable::UserFunction {
-                                function: function.clone(),
-                                closure: None,
-                                bound_self: None,
-                            })),
-                        );
+                    Scope::define(
+                        &self.globals,
+                        function.name.clone(),
+                        Value::Callable(Rc::new(Callable::UserFunction {
+                            function: function.clone(),
+                            closure: None,
+                            bound_self: None,
+                        })),
+                    );
+                    if function.is_entry {
+                        entry_point = Some(function.clone());
                     }
                 }
                 TopLevelItem::Struct(definition) => Scope::define(
@@ -337,56 +339,39 @@ impl Interpreter {
                     definition.name.clone(),
                     Value::ClassType(definition.clone()),
                 ),
-                TopLevelItem::Statement(_) => {}
-                TopLevelItem::Header(_)
-                | TopLevelItem::Import(_)
-                | TopLevelItem::EspkgPackage(_)
+                TopLevelItem::Header(_) | TopLevelItem::Import(_) | TopLevelItem::Stop(_) => {}
+                TopLevelItem::Statement(statement) => {
+                    return Err(runtime_error(
+                        statement_position(statement),
+                        "top-level statements are not executable; put runtime code inside `int main()`",
+                    ));
+                }
+                TopLevelItem::EspkgPackage(_)
                 | TopLevelItem::ExternFunction(_)
-                | TopLevelItem::TypeAlias(_) => {}
+                | TopLevelItem::TypeAlias(_) => {
+                    return Err(runtime_error(
+                        (program.line, program.column),
+                        "unsupported top-level declaration",
+                    ));
+                }
             }
         }
 
-        let mut value = None;
-        for item in &program.items {
-            match item {
-                TopLevelItem::Function(function) if function.is_entry => {
-                    value = Some(self.call(
-                        Callable::UserFunction {
-                            function: function.clone(),
-                            closure: None,
-                            bound_self: None,
-                        },
-                        Vec::new(),
-                        (function.line, function.column),
-                    )?);
-                }
-                TopLevelItem::Statement(statement) => {
-                    match self.execute_statement(statement, &self.globals.clone())? {
-                        Flow::Normal => {}
-                        Flow::Stop => break,
-                        Flow::Return(_) => {
-                            return Err(runtime_error(
-                                statement_position(statement),
-                                "`return` outside a function",
-                            ));
-                        }
-                        Flow::Break => {
-                            return Err(runtime_error(
-                                statement_position(statement),
-                                "`break` outside a loop",
-                            ));
-                        }
-                        Flow::Continue => {
-                            return Err(runtime_error(
-                                statement_position(statement),
-                                "`continue` outside a loop",
-                            ));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+        let function = entry_point.ok_or_else(|| {
+            runtime_error(
+                (program.line, program.column),
+                "program is missing its required `int main()` entry point",
+            )
+        })?;
+        let value = Some(self.call(
+            Callable::UserFunction {
+                function: function.clone(),
+                closure: None,
+                bound_self: None,
+            },
+            Vec::new(),
+            (function.line, function.column),
+        )?);
         Ok(RunResult {
             output: self.output.clone(),
             value,
@@ -479,10 +464,26 @@ impl Interpreter {
             }
             Statement::Stop(_) => Ok(Flow::Stop),
             Statement::Rules(statement) => {
-                if let Some(body) = &statement.body {
+                if let (Some(operation), Some(value)) = (&statement.operation, &statement.value) {
+                    let value = self.eval(value, environment)?;
+                    match operation.as_str() {
+                        "write" => self.output.push(value.to_string()),
+                        "output" => self.output.push(format!("{value}\n")),
+                        _ => {
+                            return Err(runtime_error(
+                                (statement.line, statement.column),
+                                format!("unknown rules operation `{operation}`"),
+                            ))
+                        }
+                    }
+                    Ok(Flow::Normal)
+                } else if let Some(body) = &statement.body {
                     self.execute_block(body, environment)
                 } else {
-                    Ok(Flow::Normal)
+                    Err(runtime_error(
+                        (statement.line, statement.column),
+                        "incomplete `rules!` command",
+                    ))
                 }
             }
             Statement::Break(_) => Ok(Flow::Break),

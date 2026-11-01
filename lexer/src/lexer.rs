@@ -11,6 +11,33 @@ pub enum TokenKind {
     Import,
     Std,
     Def,
+    Fn,
+    Struct,
+    Enum,
+    Extern,
+    If,
+    Elif,
+    Else,
+    While,
+    For,
+    In,
+    Break,
+    Continue,
+    Try,
+    Except,
+    Finally,
+    Class,
+    Const,
+    Type,
+    Lambda,
+    Espkg,
+    Package,
+    Thread,
+    Spawn,
+    Join,
+    GcBang,
+    True,
+    False,
     Return,
     Code,
     RulesBang,
@@ -22,16 +49,32 @@ pub enum TokenKind {
     StringLiteral(String),
     Comment(String),
     Arrow,
+    Assign,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+    EqEq,
+    BangEq,
+    Not,
+    And,
+    Or,
     Plus,
     Minus,
     Star,
     Slash,
+    Percent,
     LeftBrace,
     RightBrace,
+    LeftBracket,
+    RightBracket,
     LeftParen,
     RightParen,
     Comma,
+    Dot,
+    Colon,
     Semicolon,
+    Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +138,12 @@ impl<'source> Lexer<'source> {
             let line = self.line;
             let column = self.column;
             let kind = match character {
+                '#' if self.peek_next() == Some('[') => {
+                    self.advance();
+                    TokenKind::Hash
+                }
                 '#' => self.scan_comment(),
+                '/' if self.peek_next() == Some('*') => self.scan_block_comment(line, column)?,
                 '"' => self.scan_string()?,
                 '0'..='9' => self.scan_number(),
                 'a'..='z' | 'A'..='Z' | '_' => self.scan_identifier(),
@@ -103,6 +151,52 @@ impl<'source> Lexer<'source> {
                     self.advance();
                     self.advance();
                     TokenKind::Arrow
+                }
+                '>' if self.peek_next() == Some('=') => {
+                    self.advance();
+                    self.advance();
+                    TokenKind::Ge
+                }
+                '>' => {
+                    self.advance();
+                    TokenKind::Gt
+                }
+                '<' if self.peek_next() == Some('=') => {
+                    self.advance();
+                    self.advance();
+                    TokenKind::Le
+                }
+                '<' => {
+                    self.advance();
+                    TokenKind::Lt
+                }
+                '=' if self.peek_next() == Some('=') => {
+                    self.advance();
+                    self.advance();
+                    TokenKind::EqEq
+                }
+                '=' => {
+                    self.advance();
+                    TokenKind::Assign
+                }
+                '!' if self.peek_next() == Some('=') => {
+                    self.advance();
+                    self.advance();
+                    TokenKind::BangEq
+                }
+                '!' => {
+                    self.advance();
+                    TokenKind::Not
+                }
+                '&' if self.peek_next() == Some('&') => {
+                    self.advance();
+                    self.advance();
+                    TokenKind::And
+                }
+                '|' if self.peek_next() == Some('|') => {
+                    self.advance();
+                    self.advance();
+                    TokenKind::Or
                 }
                 '+' => {
                     self.advance();
@@ -120,6 +214,10 @@ impl<'source> Lexer<'source> {
                     self.advance();
                     TokenKind::Slash
                 }
+                '%' => {
+                    self.advance();
+                    TokenKind::Percent
+                }
                 '{' => {
                     self.advance();
                     TokenKind::LeftBrace
@@ -127,6 +225,14 @@ impl<'source> Lexer<'source> {
                 '}' => {
                     self.advance();
                     TokenKind::RightBrace
+                }
+                '[' => {
+                    self.advance();
+                    TokenKind::LeftBracket
+                }
+                ']' => {
+                    self.advance();
+                    TokenKind::RightBracket
                 }
                 '(' => {
                     self.advance();
@@ -139,6 +245,14 @@ impl<'source> Lexer<'source> {
                 ',' => {
                     self.advance();
                     TokenKind::Comma
+                }
+                '.' => {
+                    self.advance();
+                    TokenKind::Dot
+                }
+                ':' => {
+                    self.advance();
+                    TokenKind::Colon
                 }
                 ';' => {
                     self.advance();
@@ -171,6 +285,30 @@ impl<'source> Lexer<'source> {
             self.advance();
         }
         TokenKind::Comment(self.source[content_start..self.offset].to_owned())
+    }
+
+    fn scan_block_comment(&mut self, line: usize, column: usize) -> Result<TokenKind, LexError> {
+        self.advance();
+        self.advance();
+        let content_start = self.offset;
+        while !matches!(self.peek(), None)
+            && !(self.peek() == Some('*') && self.peek_next() == Some('/'))
+        {
+            self.advance();
+        }
+        if self.peek().is_none() {
+            return Err(LexError {
+                message: "unterminated block comment".to_owned(),
+                line,
+                column,
+            });
+        }
+        let content_end = self.offset;
+        self.advance();
+        self.advance();
+        Ok(TokenKind::Comment(
+            self.source[content_start..content_end].to_owned(),
+        ))
     }
 
     fn scan_string(&mut self) -> Result<TokenKind, LexError> {
@@ -246,15 +384,15 @@ impl<'source> Lexer<'source> {
             self.advance();
         }
         let identifier_end = self.offset;
-        let is_rules_bang =
-            &self.source[start..identifier_end] == "rules" && self.peek() == Some('!');
-        if is_rules_bang {
-            self.advance();
-        }
-
         let identifier = &self.source[start..identifier_end];
-        if is_rules_bang {
-            return TokenKind::RulesBang;
+        let bang_token = match (identifier, self.peek()) {
+            ("rules", Some('!')) => Some(TokenKind::RulesBang),
+            ("gc", Some('!')) => Some(TokenKind::GcBang),
+            _ => None,
+        };
+        if bang_token.is_some() {
+            self.advance();
+            return bang_token.expect("checked for bang token");
         }
 
         match identifier {
@@ -266,6 +404,32 @@ impl<'source> Lexer<'source> {
             "import" => TokenKind::Import,
             "std" => TokenKind::Std,
             "def" => TokenKind::Def,
+            "fn" => TokenKind::Fn,
+            "struct" => TokenKind::Struct,
+            "enum" => TokenKind::Enum,
+            "extern" => TokenKind::Extern,
+            "if" => TokenKind::If,
+            "elif" => TokenKind::Elif,
+            "else" => TokenKind::Else,
+            "while" => TokenKind::While,
+            "for" => TokenKind::For,
+            "in" => TokenKind::In,
+            "break" => TokenKind::Break,
+            "continue" => TokenKind::Continue,
+            "try" => TokenKind::Try,
+            "except" => TokenKind::Except,
+            "finally" => TokenKind::Finally,
+            "class" => TokenKind::Class,
+            "const" => TokenKind::Const,
+            "type" => TokenKind::Type,
+            "lambda" => TokenKind::Lambda,
+            "espkg" => TokenKind::Espkg,
+            "package" => TokenKind::Package,
+            "thread" => TokenKind::Thread,
+            "spawn" => TokenKind::Spawn,
+            "join" => TokenKind::Join,
+            "True" => TokenKind::True,
+            "False" => TokenKind::False,
             "return" => TokenKind::Return,
             "code" => TokenKind::Code,
             "stop" => TokenKind::Stop,

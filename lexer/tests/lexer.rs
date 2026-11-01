@@ -83,6 +83,32 @@ fn lexes_addition_source() {
 }
 
 #[test]
+fn lexes_container_brackets_and_member_access_punctuation() {
+    let tokens = lex("[] [0] arr.append(1) (1, 2)").unwrap();
+    assert_eq!(
+        tokens,
+        vec![
+            token(TokenKind::LeftBracket, "[", 1, 1),
+            token(TokenKind::RightBracket, "]", 1, 2),
+            token(TokenKind::LeftBracket, "[", 1, 4),
+            token(TokenKind::Number("0".to_owned()), "0", 1, 5),
+            token(TokenKind::RightBracket, "]", 1, 6),
+            token(TokenKind::Identifier("arr".to_owned()), "arr", 1, 8),
+            token(TokenKind::Dot, ".", 1, 11),
+            token(TokenKind::Identifier("append".to_owned()), "append", 1, 12),
+            token(TokenKind::LeftParen, "(", 1, 18),
+            token(TokenKind::Number("1".to_owned()), "1", 1, 19),
+            token(TokenKind::RightParen, ")", 1, 20),
+            token(TokenKind::LeftParen, "(", 1, 22),
+            token(TokenKind::Number("1".to_owned()), "1", 1, 23),
+            token(TokenKind::Comma, ",", 1, 24),
+            token(TokenKind::Number("2".to_owned()), "2", 1, 26),
+            token(TokenKind::RightParen, ")", 1, 27),
+        ]
+    );
+}
+
+#[test]
 fn lexes_function_parameters_and_auto_type() {
     let tokens = lex("def sum(a, b) -> auto").unwrap();
     assert_eq!(
@@ -116,6 +142,107 @@ fn lexes_integer_and_arithmetic_operators() {
             token(TokenKind::Number("2".to_owned()), "2", 1, 8),
         ]
     );
+}
+
+#[test]
+fn lexes_keywords_and_multi_character_operators_without_splitting() {
+    let tokens =
+        lex("if elif else while break continue True False >= > <= < == != ! && || = ->").unwrap();
+    assert_eq!(
+        tokens,
+        vec![
+            token(TokenKind::If, "if", 1, 1),
+            token(TokenKind::Elif, "elif", 1, 4),
+            token(TokenKind::Else, "else", 1, 9),
+            token(TokenKind::While, "while", 1, 14),
+            token(TokenKind::Break, "break", 1, 20),
+            token(TokenKind::Continue, "continue", 1, 26),
+            token(TokenKind::True, "True", 1, 35),
+            token(TokenKind::False, "False", 1, 40),
+            token(TokenKind::Ge, ">=", 1, 46),
+            token(TokenKind::Gt, ">", 1, 49),
+            token(TokenKind::Le, "<=", 1, 51),
+            token(TokenKind::Lt, "<", 1, 54),
+            token(TokenKind::EqEq, "==", 1, 56),
+            token(TokenKind::BangEq, "!=", 1, 59),
+            token(TokenKind::Not, "!", 1, 62),
+            token(TokenKind::And, "&&", 1, 64),
+            token(TokenKind::Or, "||", 1, 67),
+            token(TokenKind::Assign, "=", 1, 70),
+            token(TokenKind::Arrow, "->", 1, 72),
+        ]
+    );
+}
+
+#[test]
+fn lexes_rules_commands_and_final_stop_marker() {
+    let tokens = lex("rules! write -> value; rules! output -> 2; stop;").unwrap();
+    assert_eq!(
+        tokens
+            .iter()
+            .map(|token| token.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            TokenKind::RulesBang,
+            TokenKind::Identifier("write".to_owned()),
+            TokenKind::Arrow,
+            TokenKind::Identifier("value".to_owned()),
+            TokenKind::Semicolon,
+            TokenKind::RulesBang,
+            TokenKind::Identifier("output".to_owned()),
+            TokenKind::Arrow,
+            TokenKind::Number("2".to_owned()),
+            TokenKind::Semicolon,
+            TokenKind::Stop,
+            TokenKind::Semicolon,
+        ]
+    );
+    assert_eq!((tokens[0].line, tokens[0].column), (1, 1));
+    assert_eq!((tokens[5].line, tokens[5].column), (1, 24));
+}
+
+#[test]
+fn lexes_package_gc_and_thread_keywords() {
+    let tokens = lex("espkg package gc! collect thread spawn join").unwrap();
+    assert_eq!(
+        tokens
+            .iter()
+            .map(|token| token.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            TokenKind::Espkg,
+            TokenKind::Package,
+            TokenKind::GcBang,
+            TokenKind::Identifier("collect".to_owned()),
+            TokenKind::Thread,
+            TokenKind::Spawn,
+            TokenKind::Join,
+        ]
+    );
+    assert_eq!(tokens[2].lexeme, "gc!");
+    assert_eq!((tokens[2].line, tokens[2].column), (1, 15));
+}
+
+#[test]
+fn lexes_fourth_tier_declaration_keywords_and_aot_marker() {
+    let tokens = lex("fn struct enum extern #[aot]").unwrap();
+    assert_eq!(
+        tokens
+            .iter()
+            .map(|token| token.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            TokenKind::Fn,
+            TokenKind::Struct,
+            TokenKind::Enum,
+            TokenKind::Extern,
+            TokenKind::Hash,
+            TokenKind::LeftBracket,
+            TokenKind::Identifier("aot".to_owned()),
+            TokenKind::RightBracket,
+        ]
+    );
+    assert_eq!((tokens[4].line, tokens[4].column), (1, 23));
 }
 
 #[test]
