@@ -479,7 +479,7 @@ impl Interpreter {
                     }
                     let value = self.eval(value, environment)?;
                     match operation.as_str() {
-                        "write" => self.output.push(value.to_string()),
+                        "write" => Scope::assign(environment, "a", value),
                         "output" => self.output.push(format!("{value}\n")),
                         _ => {
                             return Err(runtime_error(

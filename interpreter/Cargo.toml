@@ -3,5 +3,9 @@ name = "easyscript-interpreter"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "easyscript"
+path = "src/main.rs"
+
 [dependencies]
 easyscript = { path = "../lexer" }

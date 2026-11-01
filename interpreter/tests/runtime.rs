@@ -42,10 +42,7 @@ fn evaluates_arithmetic_conditionals_and_while_loops_with_dynamic_variables() {
 "#,
     )
     .unwrap();
-    assert_eq!(
-        result.output,
-        ["1", "1\n", "2", "2\n", "3", "3\n", "finished", "finished\n"]
-    );
+    assert_eq!(result.output, ["1\n", "2\n", "3\n", "finished\n"]);
     assert!(matches!(result.value, Some(Value::Null)));
 }
 
@@ -64,7 +61,7 @@ int main() {
 "#,
     )
     .unwrap();
-    assert_eq!(result.output, ["5", "5\n", "8", "8\n", "4", "4\n"]);
+    assert_eq!(result.output, ["5\n", "8\n", "4\n"]);
 }
 
 #[test]
@@ -90,20 +87,7 @@ fn handles_lists_tuples_dictionaries_comprehensions_and_slices() {
     .unwrap();
     assert_eq!(
         result.output,
-        [
-            "4",
-            "4\n",
-            "[4, 3, 2, 10]",
-            "[4, 3, 2, 10]\n",
-            "6",
-            "6\n",
-            "easy",
-            "easy\n",
-            "2",
-            "2\n",
-            "[4, 6]",
-            "[4, 6]\n"
-        ]
+        ["4\n", "[4, 3, 2, 10]\n", "6\n", "easy\n", "2\n", "[4, 6]\n"]
     );
 }
 
@@ -129,7 +113,7 @@ fn iterates_ranges_lists_strings_and_supports_break_continue() {
 "#,
     )
     .unwrap();
-    assert_eq!(result.output, ["8", "8\n", "a", "a\n", "b", "b\n"]);
+    assert_eq!(result.output, ["8\n", "a\n", "b\n"]);
 }
 
 #[test]
@@ -160,10 +144,7 @@ int main() {
 "#,
     )
     .unwrap();
-    assert_eq!(
-        result.output,
-        ["3", "3\n", "7", "7\n", "6", "6\n", "6", "6\n"]
-    );
+    assert_eq!(result.output, ["3\n", "7\n", "6\n", "6\n"]);
 }
 
 #[test]
@@ -180,22 +161,36 @@ stop;
 "#,
     )
     .unwrap();
-    assert_eq!(result.output, ["called", "called\n", "42", "42\n"]);
+    assert_eq!(result.output, ["called\n", "42\n"]);
 }
 
 #[test]
 fn executes_rules_write_and_output_commands() {
     let result = run_with_std(
         r#"int main() {
-    value = auto -> "hello";
-    rules! write -> value;
-    rules! output -> 42;
+    rules! write -> "hello";
+    rules! output -> a;
+    rules! write -> 42;
+    rules! output -> a;
 }
 stop;
 "#,
     )
     .unwrap();
-    assert_eq!(result.output, ["hello", "42\n"]);
+    assert_eq!(result.output, ["hello\n", "42\n"]);
+}
+
+#[test]
+fn rules_write_stores_without_printing_until_output_reads_a() {
+    let result = run_source(
+        r#"from library import std
+int main() {
+    rules! write -> "stored only"
+}
+"#,
+    )
+    .unwrap();
+    assert!(result.output.is_empty());
 }
 
 #[test]
@@ -227,7 +222,7 @@ stop
 
     for source in [semicolon_source, newline_source] {
         let result = run_source(source).unwrap();
-        assert_eq!(result.output, ["Hello World!\n", "Hello World!\n\n"]);
+        assert_eq!(result.output, ["Hello World!\n\n"]);
         assert!(matches!(result.value, Some(Value::Number(0))));
     }
 }
@@ -270,7 +265,7 @@ int main() {
 "#,
     )
     .unwrap();
-    assert_eq!(result.output, ["Red", "Red\n", "5", "5\n", "2", "2\n"]);
+    assert_eq!(result.output, ["Red\n", "5\n", "2\n"]);
 }
 
 #[test]
@@ -297,10 +292,7 @@ fn executes_try_handlers_and_finally_and_reports_runtime_locations() {
 "#,
     )
     .unwrap();
-    assert_eq!(
-        result.output,
-        ["caught", "caught\n", "finally", "finally\n"]
-    );
+    assert_eq!(result.output, ["caught\n", "finally\n"]);
 
     let error = run_source("int main() {\n    value = int -> 1 / 0;\n}\n").unwrap_err();
     match error {
