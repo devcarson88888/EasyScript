@@ -87,12 +87,16 @@ fn build_supports_std_io_functions_and_short_aliases() {
     fs::write(
         &source_path,
         r#"from library import std;
+def println(value=auto) {
+    std.write(value);
+    std.output();
+}
 int main() {
     std.write("explicit");
     std.output();
     write("alias");
     output();
-    std.println("println");
+    println("println");
     return code -> 0;
 }
 stop;

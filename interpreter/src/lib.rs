@@ -134,7 +134,6 @@ pub enum NativeFunction {
     Str,
     StdWrite,
     StdOutput,
-    StdPrintln,
 }
 
 impl fmt::Debug for Value {
@@ -1045,17 +1044,6 @@ impl Interpreter {
                 self.output.push(format!("{value}\n"));
                 Ok(Value::Null)
             }
-            NativeFunction::StdPrintln => {
-                if !self.std_imported {
-                    return Err(runtime_error(
-                        at,
-                        "std IO functions require `from library import std;`",
-                    ));
-                }
-                expect_argument_count(&arguments, 1, at)?;
-                self.call_native(NativeFunction::StdWrite, arguments, at)?;
-                self.call_native(NativeFunction::StdOutput, Vec::new(), at)
-            }
         }
     }
 
@@ -1070,7 +1058,6 @@ impl Interpreter {
             Value::StdLibrary => match method {
                 "write" => self.call_native(NativeFunction::StdWrite, arguments, at),
                 "output" => self.call_native(NativeFunction::StdOutput, arguments, at),
-                "println" => self.call_native(NativeFunction::StdPrintln, arguments, at),
                 _ => Err(runtime_error(
                     at,
                     format!("std library has no function `{method}`"),

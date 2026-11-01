@@ -197,6 +197,10 @@ int main() {
 fn std_io_functions_and_compatible_short_aliases_use_the_shared_buffer() {
     let result = run_source(
         r#"from library import std;
+def println(value=auto) {
+    std.write(value);
+    std.output();
+}
 int main() {
     std.write("buffered");
     std.output();
@@ -204,7 +208,7 @@ int main() {
     std.output(42);
     write("short alias");
     output();
-    std.println("line");
+    println("line");
 }
 "#,
     )
@@ -241,13 +245,37 @@ fn std_short_aliases_do_not_replace_user_defined_functions() {
     return code -> value;
 }
 from library import std;
+def println(value=auto) {
+    std.write(value);
+    std.output();
+}
 int main() {
-    std.println(write("custom write"));
+    println(write("custom write"));
 }
 "#,
     )
     .unwrap();
     assert_eq!(result.output, ["custom write\n"]);
+}
+
+#[test]
+fn println_is_not_a_std_member_function() {
+    let error = run_source(
+        r#"from library import std;
+int main() {
+    std.println("not part of std");
+}
+"#,
+    )
+    .unwrap_err();
+    match error {
+        easyscript_interpreter::RunError::Runtime(error) => {
+            assert!(error
+                .message
+                .contains("std library has no function `println`"));
+        }
+        easyscript_interpreter::RunError::Parse(error) => panic!("unexpected parse error: {error}"),
+    }
 }
 
 #[test]

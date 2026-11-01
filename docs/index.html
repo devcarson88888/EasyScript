@@ -379,15 +379,16 @@ std.output();</code></pre>
         <pre><code><span class="rule">rules!</span> write -&gt; <span class="str">"Hello from rules!"</span>
 <span class="rule">rules!</span> output -&gt; a</code></pre>
 
-        <h3>封装的 <code>std.println()</code></h3>
-        <p>标准库也提供 <code>std.println(value)</code>，内部按 write 后 output 的顺序输出一行。也可以用 EasyScript 函数自行封装：</p>
+        <h3>自定义 <code>println</code> 函数</h3>
+        <p><code>println</code> 不是 <code>std</code> 内置函数。可用 <code>def</code> 定义普通 EasyScript 函数，在函数体中先调用 <code>std.write</code>，再调用 <code>std.output</code>：</p>
         <pre><code><span class="kw">def</span> <span class="fn">println</span>(value=<span class="type">std</span>) {
     <span class="rule">rules!</span> write -&gt; value
     <span class="rule">rules!</span> output -&gt; a
 }
 
 <span class="kw">int</span> <span class="fn">main</span>() {
-    std.println(<span class="str">"Hello"</span>);
+    std.write(<span class="str">"Hello"</span>);
+    std.output();
     println(<span class="str">"Also works"</span>);
 }</code></pre>
         <div class="callout" role="note">
@@ -397,18 +398,23 @@ std.output();</code></pre>
 
       <section id="example">
         <h2>完整示例：<code>example.es</code></h2>
-        <p>下面的程序使用标准库 <code>std.write()</code>、<code>std.output()</code> 与 <code>std.println()</code>，并展示 <code>if/else</code> 分支。</p>
+        <p>下面的程序用 <code>def</code> 自定义 <code>println</code>，基于标准库 <code>std.write()</code> 和 <code>std.output()</code> 输出，并展示 <code>if/else</code> 分支。</p>
         <pre><code><span class="kw">active</span> system linux;
 <span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;
+
+<span class="kw">def</span> <span class="fn">println</span>(value=<span class="type">auto</span>) {
+    std.write(value);
+    std.output();
+}
 
 <span class="kw">int</span> <span class="fn">main</span>() {
     std.write(<span class="str">"buffered output"</span>);
     std.output();
     i = <span class="type">int</span> -&gt; <span class="num">1</span>;
     <span class="kw">if</span> (i == <span class="num">1</span>) {
-        std.println(<span class="str">"condition matched"</span>);
+        println(<span class="str">"condition matched"</span>);
     } <span class="kw">else</span> {
-        std.println(<span class="str">"condition did not match"</span>);
+        println(<span class="str">"condition did not match"</span>);
     }
     <span class="kw">return</span> code -&gt; <span class="num">0</span>;
 }

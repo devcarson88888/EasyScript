@@ -253,7 +253,7 @@ fn validate_std_call(
         ));
     }
     let valid_count = match name {
-        "write" | "println" => argument_count == 1,
+        "write" => argument_count == 1,
         "output" => argument_count <= 1,
         _ => false,
     };
@@ -452,7 +452,7 @@ fn emit_expr(expression: &Expr, functions: &HashMap<&str, usize>) -> Result<Stri
                     "{{ let _ = {}; easyscript_std::output() }}",
                     arguments[0]
                 ),
-                "println" => format!("easyscript_std::println({})", arguments[0]),
+
                 _ => return Err(unsupported("this std function", expression.line, expression.column)),
             }
         }
@@ -600,10 +600,6 @@ mod easyscript_std {
         Value::Unit
     }
 
-    pub fn println(value: Value) -> Value {
-        write(value);
-        output()
-    }
 }
 
 fn get(environment: &HashMap<String, Value>, name: &str) -> Value {

@@ -1309,7 +1309,6 @@ fn parses_std_member_function_calls_without_reclassifying_other_keywords() {
 int main() {
     std.write("buffered");
     std.output();
-    std.println("line");
 }
 "#,
     )
@@ -1317,12 +1316,7 @@ int main() {
     let TopLevelItem::Function(main) = &program.items[1] else {
         panic!("expected main function");
     };
-    for (statement, expected_method) in main
-        .body
-        .statements
-        .iter()
-        .zip(["write", "output", "println"])
-    {
+    for (statement, expected_method) in main.body.statements.iter().zip(["write", "output"]) {
         let Statement::Expression(statement) = statement else {
             panic!("expected a member call statement");
         };
