@@ -81,6 +81,50 @@ stop;
 }
 
 #[test]
+fn build_supports_std_io_functions_and_short_aliases() {
+    let directory = temporary_directory();
+    let source_path = directory.join("std_io.es");
+    fs::write(
+        &source_path,
+        r#"from library import std;
+int main() {
+    std.write("explicit");
+    std.output();
+    write("alias");
+    output();
+    std.println("println");
+    return code -> 0;
+}
+stop;
+"#,
+    )
+    .expect("write source");
+
+    let build = Command::new(env!("CARGO_BIN_EXE_easyscript"))
+        .arg("build")
+        .arg(&source_path)
+        .current_dir(&directory)
+        .output()
+        .expect("run easyscript build");
+    assert!(
+        build.status.success(),
+        "build failed: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(directory.join("std_io"))
+        .output()
+        .expect("run generated ELF");
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "explicit\nalias\nprintln\n"
+    );
+
+    fs::remove_dir_all(directory).expect("clean isolated test directory");
+}
+
+#[test]
 fn debug_and_build_report_the_same_parser_error() {
     let directory = temporary_directory();
     let source_path = directory.join("invalid.es");

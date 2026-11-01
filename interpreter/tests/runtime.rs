@@ -194,6 +194,63 @@ int main() {
 }
 
 #[test]
+fn std_io_functions_and_compatible_short_aliases_use_the_shared_buffer() {
+    let result = run_source(
+        r#"from library import std;
+int main() {
+    std.write("buffered");
+    std.output();
+    std.write(42);
+    std.output(42);
+    write("short alias");
+    output();
+    std.println("line");
+}
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        result.output,
+        ["buffered\n", "42\n", "short alias\n", "line\n"]
+    );
+}
+
+#[test]
+fn std_output_before_write_reports_the_uninitialized_buffer() {
+    let error = run_source(
+        r#"from library import std;
+int main() {
+    std.output();
+}
+"#,
+    )
+    .unwrap_err();
+    match error {
+        easyscript_interpreter::RunError::Runtime(error) => {
+            assert!(error.message.contains("before std.write()"));
+            assert_eq!(error.line, 3);
+        }
+        easyscript_interpreter::RunError::Parse(error) => panic!("unexpected parse error: {error}"),
+    }
+}
+
+#[test]
+fn std_short_aliases_do_not_replace_user_defined_functions() {
+    let result = run_source(
+        r#"def write(value=auto) {
+    return code -> value;
+}
+from library import std;
+int main() {
+    std.println(write("custom write"));
+}
+"#,
+    )
+    .unwrap();
+    assert_eq!(result.output, ["custom write\n"]);
+}
+
+#[test]
 fn runs_the_documented_hello_world_with_either_terminator_style() {
     let semicolon_source = r#"active system linux;
 from library import std;

@@ -152,19 +152,23 @@ fn validate_block(
                         assignment.column,
                     ));
                 }
-                validate_expr(&assignment.value, functions)?;
+                validate_expr(&assignment.value, imported_std, functions)?;
             }
-            Statement::Expression(expression) => validate_expr(&expression.expression, functions)?,
+            Statement::Expression(expression) => {
+                validate_expr(&expression.expression, imported_std, functions)?
+            }
             Statement::If(statement) => {
                 for (condition, branch) in &statement.branches {
-                    validate_expr(condition, functions)?;
+                    validate_expr(condition, imported_std, functions)?;
                     validate_block(branch, imported_std, functions)?;
                 }
                 if let Some(branch) = &statement.else_block {
                     validate_block(branch, imported_std, functions)?;
                 }
             }
-            Statement::Return(statement) => validate_expr(&statement.value, functions)?,
+            Statement::Return(statement) => {
+                validate_expr(&statement.value, imported_std, functions)?
+            }
             Statement::Rules(statement) => {
                 if !imported_std {
                     return Err(format!(
@@ -173,7 +177,7 @@ fn validate_block(
                     ));
                 }
                 if let Some(value) = &statement.value {
-                    validate_expr(value, functions)?;
+                    validate_expr(value, imported_std, functions)?;
                 }
             }
             Statement::Empty(_) => {}
@@ -186,27 +190,45 @@ fn validate_block(
     Ok(())
 }
 
-fn validate_expr(expression: &Expr, functions: &HashMap<&str, usize>) -> Result<(), String> {
+fn validate_expr(
+    expression: &Expr,
+    imported_std: bool,
+    functions: &HashMap<&str, usize>,
+) -> Result<(), String> {
     match &expression.kind {
         ExprKind::Number(_) | ExprKind::String(_) | ExprKind::Boolean(_) => {}
         ExprKind::Identifier(_) => {}
         ExprKind::Call { callee, arguments } => {
-            if !functions.contains_key(callee.as_str()) {
+            let valid_std_function = matches!(callee.as_str(), "write" | "output");
+            if !functions.contains_key(callee.as_str()) && !valid_std_function {
                 return Err(format!(
                     "EasyScript AOT error: function `{callee}` is not defined at line {}, column {}",
                     expression.line, expression.column
                 ));
             }
+            if valid_std_function && !functions.contains_key(callee.as_str()) {
+                validate_std_call(callee, arguments.len(), imported_std, expression)?;
+            }
             for argument in arguments {
-                validate_expr(argument, functions)?;
+                validate_expr(argument, imported_std, functions)?;
             }
         }
-        ExprKind::Unary { operand, .. } => validate_expr(operand, functions)?,
-        ExprKind::Binary { left, right, .. } => {
-            validate_expr(left, functions)?;
-            validate_expr(right, functions)?;
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            arguments,
+        } if matches!(&receiver.kind, ExprKind::Identifier(name) if name == "std") => {
+            validate_std_call(method, arguments.len(), imported_std, expression)?;
+            for argument in arguments {
+                validate_expr(argument, imported_std, functions)?;
+            }
         }
-        ExprKind::Grouping(inner) => validate_expr(inner, functions)?,
+        ExprKind::Unary { operand, .. } => validate_expr(operand, imported_std, functions)?,
+        ExprKind::Binary { left, right, .. } => {
+            validate_expr(left, imported_std, functions)?;
+            validate_expr(right, imported_std, functions)?;
+        }
+        ExprKind::Grouping(inner) => validate_expr(inner, imported_std, functions)?,
         _ => {
             return Err(unsupported(
                 "this expression",
@@ -214,6 +236,32 @@ fn validate_expr(expression: &Expr, functions: &HashMap<&str, usize>) -> Result<
                 expression.column,
             ))
         }
+    }
+    Ok(())
+}
+
+fn validate_std_call(
+    name: &str,
+    argument_count: usize,
+    imported_std: bool,
+    expression: &Expr,
+) -> Result<(), String> {
+    if !imported_std {
+        return Err(format!(
+            "EasyScript AOT error: std IO functions require `from library import std;` at line {}, column {}",
+            expression.line, expression.column
+        ));
+    }
+    let valid_count = match name {
+        "write" | "println" => argument_count == 1,
+        "output" => argument_count <= 1,
+        _ => false,
+    };
+    if !valid_count {
+        return Err(format!(
+            "EasyScript AOT error: invalid arguments to `std.{name}()` at line {}, column {}",
+            expression.line, expression.column
+        ));
     }
     Ok(())
 }
@@ -329,8 +377,13 @@ fn write_block(
                 })?;
                 let expression = emit_expr(value, functions)?;
                 match operation {
-                    "write" => writeln!(source, "env.insert(\"a\".to_owned(), {expression});"),
-                    "output" => writeln!(source, "println!(\"{{}}\", {expression});"),
+                    "write" => writeln!(
+                        source,
+                        "{{ let value = {expression}; env.insert(\"a\".to_owned(), value.clone()); easyscript_std::write(value); }}"
+                    ),
+                    "output" => {
+                        writeln!(source, "{{ let _ = {expression}; easyscript_std::output(); }}")
+                    }
                     _ => {
                         return Err(unsupported(
                             "this `rules!` operation",
@@ -360,18 +413,48 @@ fn emit_expr(expression: &Expr, functions: &HashMap<&str, usize>) -> Result<Stri
         ExprKind::Boolean(value) => format!("Value::Boolean({value})"),
         ExprKind::Identifier(name) => format!("get(&env, {name:?})"),
         ExprKind::Call { callee, arguments } => {
-            functions.get(callee.as_str()).ok_or_else(|| {
-                format!(
-                    "EasyScript AOT error: function `{callee}` is not defined at line {}, column {}",
-                    expression.line, expression.column
-                )
-            })?;
             let arguments = arguments
                 .iter()
                 .map(|argument| emit_expr(argument, functions))
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            format!("call({callee:?}, vec![{arguments}])")
+            if functions.contains_key(callee.as_str()) {
+                format!("call({callee:?}, vec![{arguments}])")
+            } else {
+                match callee.as_str() {
+                    "write" => format!("easyscript_std::write({arguments})"),
+                    "output" if arguments.is_empty() => "easyscript_std::output()".to_owned(),
+                    "output" => {
+                        format!("{{ let _ = {arguments}; easyscript_std::output() }}")
+                    }
+                    _ => {
+                        return Err(format!(
+                            "EasyScript AOT error: function `{callee}` is not defined at line {}, column {}",
+                            expression.line, expression.column
+                        ))
+                    }
+                }
+            }
+        }
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            arguments,
+        } if matches!(&receiver.kind, ExprKind::Identifier(name) if name == "std") => {
+            let arguments = arguments
+                .iter()
+                .map(|argument| emit_expr(argument, functions))
+                .collect::<Result<Vec<_>, _>>()?;
+            match method.as_str() {
+                "write" => format!("easyscript_std::write({})", arguments[0]),
+                "output" if arguments.is_empty() => "easyscript_std::output()".to_owned(),
+                "output" => format!(
+                    "{{ let _ = {}; easyscript_std::output() }}",
+                    arguments[0]
+                ),
+                "println" => format!("easyscript_std::println({})", arguments[0]),
+                _ => return Err(unsupported("this std function", expression.line, expression.column)),
+            }
         }
         ExprKind::Unary { operator, operand } => match operator {
             UnaryOperator::Negate => format!("negate({})", emit_expr(operand, functions)?),
@@ -474,6 +557,9 @@ fn unsupported(feature: &str, line: usize, column: usize) -> String {
 
 const RUST_RUNTIME: &str = r#"
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+static STD_BUFFER: Mutex<Option<Value>> = Mutex::new(None);
 
 #[derive(Clone, Debug)]
 enum Value {
@@ -493,6 +579,30 @@ impl std::fmt::Display for Value {
             Value::String(value) => formatter.write_str(value),
             Value::Boolean(value) => write!(formatter, "{value}"),
         }
+    }
+}
+
+mod easyscript_std {
+    use super::{Value, STD_BUFFER};
+
+    pub fn write(value: Value) -> Value {
+        *STD_BUFFER.lock().expect("std buffer lock poisoned") = Some(value);
+        Value::Unit
+    }
+
+    pub fn output() -> Value {
+        let value = STD_BUFFER
+            .lock()
+            .expect("std buffer lock poisoned")
+            .clone()
+            .expect("std.output() called before std.write() populated the global buffer");
+        println!("{value}");
+        Value::Unit
+    }
+
+    pub fn println(value: Value) -> Value {
+        write(value);
+        output()
     }
 }
 

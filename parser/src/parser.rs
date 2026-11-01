@@ -1036,6 +1036,7 @@ impl Parser {
             TokenKind::StringLiteral(value) => ExprKind::String(value),
             TokenKind::True => ExprKind::Boolean(true),
             TokenKind::False => ExprKind::Boolean(false),
+            TokenKind::Std => ExprKind::Identifier("std".to_owned()),
             TokenKind::Identifier(name) if self.matches(&TokenKind::LeftParen) => {
                 let arguments = self.parse_call_arguments()?;
                 match name.as_str() {

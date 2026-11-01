@@ -338,7 +338,7 @@
         <h3>条件与循环</h3>
         <p><code>if</code> 根据条件执行代码块；可添加 <code>else</code> 分支。<code>while</code> 在条件成立时重复执行代码块。</p>
         <pre><code><span class="kw">if</span> (i &gt; <span class="num">0</span>) {
-    i = i - <span class="num">1</span>;
+            i = <span class="type">int</span> -&gt; i - <span class="num">1</span>;
 } <span class="kw">else</span> {
     i = <span class="type">int</span> -&gt; <span class="num">1</span>;
 }
@@ -356,45 +356,59 @@
       </section>
 
       <section id="io">
-        <h2><code>rules!</code> 输入与输出规则</h2>
-        <p>导入std标准库后，使用以下规则通过全局变量 <code>a</code> 暂存并输出内容：</p>
+        <h2>标准库 IO：<code>std</code></h2>
+        <p>导入 std 标准库后，优先使用 <code>std.write()</code> 和 <code>std.output()</code>。它们是标准库函数：<code>write</code> 将数据写入全局缓冲区，不立即打印；<code>output</code> 将当前缓冲区内容输出到控制台。</p>
+        <pre><code><span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;
+
+std.write(<span class="str">"Hello"</span>);
+std.output();</code></pre>
+        <p>兼容简写 <code>write(value)</code> 和 <code>output()</code> 也合法，但<strong>不推荐</strong>省略 <code>std.</code> 前缀；优先写成 <code>std.write()</code> / <code>std.output()</code>，明确它们来自标准库并避免与自定义函数混淆。</p>
+
+        <h3><code>rules!</code> 语法糖</h3>
+        <p><code>rules!</code> IO 语句是标准库调用的语法糖，仍需先导入 <code>std</code>：</p>
         <div class="io-grid">
           <article class="io-card">
             <code>rules! write -&gt; x</code>
-            <p>不直接打印；将表达式 <code>x</code> 的值存入全局变量 <code>a</code>。</p>
+            <p>等价于调用 <code>std.write(x)</code>：写入全局缓冲区，不直接打印。</p>
           </article>
           <article class="io-card">
             <code>rules! output -&gt; a</code>
-            <p>读取全局变量 <code>a</code> 的内容并输出到终端。</p>
+            <p>等价于调用 <code>std.output(a)</code>：输出缓冲区内容。参数保留旧语法的表达式求值行为。</p>
           </article>
         </div>
-        <div class="callout" role="note">
-          <strong>重要提醒：</strong>请将 <code>write</code> 和 <code>output</code> 成对使用：先写入，再输出。单独执行 <code>output</code> 时，<code>a</code> 可能尚未有效赋值，存在隐藏逻辑 bug。
-        </div>
-        <p>使用 <code>rules!</code> IO 前需导入标准库：</p>
-        <pre><code><span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;</code></pre>
-      </section>
+        <pre><code><span class="rule">rules!</span> write -&gt; <span class="str">"Hello from rules!"</span>
+<span class="rule">rules!</span> output -&gt; a</code></pre>
 
-      <section id="example">
-        <h2>完整示例：<code>example.es</code></h2>
-        <p>下面的程序定义输出函数，并使用 <code>while</code> 循环与 <code>if/else</code> 分支逐次输出消息。每次输出前都会先通过 <code>write</code> 写入内容。</p>
-        <pre><code><span class="kw">active</span> system linux;
-<span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;
-
-<span class="kw">def</span> <span class="fn">println</span>(value=<span class="type">std</span>) {
+        <h3>封装的 <code>std.println()</code></h3>
+        <p>标准库也提供 <code>std.println(value)</code>，内部按 write 后 output 的顺序输出一行。也可以用 EasyScript 函数自行封装：</p>
+        <pre><code><span class="kw">def</span> <span class="fn">println</span>(value=<span class="type">std</span>) {
     <span class="rule">rules!</span> write -&gt; value
     <span class="rule">rules!</span> output -&gt; a
 }
 
 <span class="kw">int</span> <span class="fn">main</span>() {
+    std.println(<span class="str">"Hello"</span>);
+    println(<span class="str">"Also works"</span>);
+}</code></pre>
+        <div class="callout" role="note">
+          <strong>重要提醒：</strong>请将 <code>write</code> 和 <code>output</code> 成对使用：先写入，再输出。单独调用 <code>output</code> 时没有新写入的缓冲区内容，可能触发隐藏逻辑 bug；当前实现会报告缓冲区尚未初始化。
+        </div>
+      </section>
+
+      <section id="example">
+        <h2>完整示例：<code>example.es</code></h2>
+        <p>下面的程序使用标准库 <code>std.write()</code>、<code>std.output()</code> 与 <code>std.println()</code>，并展示 <code>if/else</code> 分支。</p>
+        <pre><code><span class="kw">active</span> system linux;
+<span class="kw">from</span> library <span class="kw">import</span> <span class="type">std</span>;
+
+<span class="kw">int</span> <span class="fn">main</span>() {
+    std.write(<span class="str">"buffered output"</span>);
+    std.output();
     i = <span class="type">int</span> -&gt; <span class="num">1</span>;
-    <span class="kw">while</span> (i &lt;= <span class="num">3</span>) {
-        <span class="kw">if</span> (i == <span class="num">2</span>) {
-            println(<span class="str">"middle"</span>);
-        } <span class="kw">else</span> {
-            println(<span class="str">"count"</span>);
-        }
-        i = <span class="type">int</span> -&gt; i + <span class="num">1</span>;
+    <span class="kw">if</span> (i == <span class="num">1</span>) {
+        std.println(<span class="str">"condition matched"</span>);
+    } <span class="kw">else</span> {
+        std.println(<span class="str">"condition did not match"</span>);
     }
     <span class="kw">return</span> code -&gt; <span class="num">0</span>;
 }

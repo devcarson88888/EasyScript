@@ -27,8 +27,18 @@ int main() {
 stop;
 ```
 
-`rules! write -> value` stores the value in variable `a` without printing.
-`rules! output -> a` evaluates and prints `a`. Both require importing `std`.
+Import the standard library with `from library import std;`. Prefer the
+explicit calls `std.write(value)` and `std.output()`: `std.write` stores a
+value in the shared output buffer without printing, while `std.output` prints
+the current buffer. `std.println(value)` combines those calls and prints one
+line. The shorter `write(value)` and `output()` aliases are supported, but
+using them without the `std.` prefix is not recommended; the prefix makes the
+source of these functions explicit.
+
+`rules! write -> value` and `rules! output -> a` are syntax sugar for calls to
+`std.write(value)` and `std.output(a)`. Use write and output as a pair; calling
+output before writing a value leaves the buffer uninitialized and reports a
+runtime error.
 
 ## Commands
 

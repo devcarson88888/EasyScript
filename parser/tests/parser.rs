@@ -1301,3 +1301,43 @@ fn reports_unlisted_generic_and_attribute_syntax_with_locations() {
     assert_eq!((attribute_error.line, attribute_error.column), (1, 1));
     assert!(attribute_error.message.contains("only"));
 }
+
+#[test]
+fn parses_std_member_function_calls_without_reclassifying_other_keywords() {
+    let program = parse(
+        r#"from library import std;
+int main() {
+    std.write("buffered");
+    std.output();
+    std.println("line");
+}
+"#,
+    )
+    .unwrap();
+    let TopLevelItem::Function(main) = &program.items[1] else {
+        panic!("expected main function");
+    };
+    for (statement, expected_method) in main
+        .body
+        .statements
+        .iter()
+        .zip(["write", "output", "println"])
+    {
+        let Statement::Expression(statement) = statement else {
+            panic!("expected a member call statement");
+        };
+        let ExprKind::MethodCall {
+            receiver, method, ..
+        } = &statement.expression.kind
+        else {
+            panic!("expected a method call");
+        };
+        assert_eq!(method, expected_method);
+        assert!(matches!(
+            &receiver.kind,
+            ExprKind::Identifier(name) if name == "std"
+        ));
+    }
+
+    assert!(parse("int main() { if (True) {} }").is_ok());
+}

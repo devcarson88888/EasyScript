@@ -132,6 +132,9 @@ pub enum NativeFunction {
     Range,
     Int,
     Str,
+    StdWrite,
+    StdOutput,
+    StdPrintln,
 }
 
 impl fmt::Debug for Value {
@@ -272,6 +275,7 @@ impl Iterator for Iteration {
 pub struct Interpreter {
     globals: Env,
     output: Vec<String>,
+    std_buffer: Option<Value>,
     steps: usize,
     std_imported: bool,
 }
@@ -300,6 +304,7 @@ impl Interpreter {
         Self {
             globals,
             output: Vec::new(),
+            std_buffer: None,
             steps: 0,
             std_imported: false,
         }
@@ -307,6 +312,7 @@ impl Interpreter {
 
     pub fn execute(&mut self, program: &Program) -> Result<RunResult, RuntimeError> {
         self.output.clear();
+        self.std_buffer = None;
         self.steps = 0;
         self.std_imported = false;
         let mut entry_point = None;
@@ -344,6 +350,18 @@ impl Interpreter {
                 TopLevelItem::Import(import) if import.library == "std" => {
                     self.std_imported = true;
                     Scope::define(&self.globals, "std", Value::StdLibrary);
+                    for (name, native) in [
+                        ("write", NativeFunction::StdWrite),
+                        ("output", NativeFunction::StdOutput),
+                    ] {
+                        if Scope::get(&self.globals, name).is_none() {
+                            Scope::define(
+                                &self.globals,
+                                name,
+                                Value::Callable(Rc::new(Callable::Native(native))),
+                            );
+                        }
+                    }
                 }
                 TopLevelItem::Header(_) | TopLevelItem::Import(_) | TopLevelItem::Stop(_) => {}
                 TopLevelItem::Statement(statement) => {
@@ -479,8 +497,21 @@ impl Interpreter {
                     }
                     let value = self.eval(value, environment)?;
                     match operation.as_str() {
-                        "write" => Scope::assign(environment, "a", value),
-                        "output" => self.output.push(format!("{value}\n")),
+                        "write" => {
+                            Scope::assign(environment, "a", value.clone());
+                            self.call_native(
+                                NativeFunction::StdWrite,
+                                vec![value],
+                                (statement.line, statement.column),
+                            )?;
+                        }
+                        "output" => {
+                            self.call_native(
+                                NativeFunction::StdOutput,
+                                vec![value],
+                                (statement.line, statement.column),
+                            )?;
+                        }
                         _ => {
                             return Err(runtime_error(
                                 (statement.line, statement.column),
@@ -980,6 +1011,51 @@ impl Interpreter {
                 expect_argument_count(&arguments, 1, at)?;
                 Ok(Value::String(arguments[0].to_string()))
             }
+            NativeFunction::StdWrite => {
+                if !self.std_imported {
+                    return Err(runtime_error(
+                        at,
+                        "std IO functions require `from library import std;`",
+                    ));
+                }
+                expect_argument_count(&arguments, 1, at)?;
+                Scope::assign(&self.globals, "a", arguments[0].clone());
+                self.std_buffer = Some(arguments[0].clone());
+                Ok(Value::Null)
+            }
+            NativeFunction::StdOutput => {
+                if !self.std_imported {
+                    return Err(runtime_error(
+                        at,
+                        "std IO functions require `from library import std;`",
+                    ));
+                }
+                if arguments.len() > 1 {
+                    return Err(runtime_error(
+                        at,
+                        "std.output() accepts zero or one argument",
+                    ));
+                }
+                let value = self.std_buffer.clone().ok_or_else(|| {
+                    runtime_error(
+                        at,
+                        "std.output() called before std.write() populated the global buffer",
+                    )
+                })?;
+                self.output.push(format!("{value}\n"));
+                Ok(Value::Null)
+            }
+            NativeFunction::StdPrintln => {
+                if !self.std_imported {
+                    return Err(runtime_error(
+                        at,
+                        "std IO functions require `from library import std;`",
+                    ));
+                }
+                expect_argument_count(&arguments, 1, at)?;
+                self.call_native(NativeFunction::StdWrite, arguments, at)?;
+                self.call_native(NativeFunction::StdOutput, Vec::new(), at)
+            }
         }
     }
 
@@ -991,6 +1067,15 @@ impl Interpreter {
         at: (usize, usize),
     ) -> Result<Value, RuntimeError> {
         match receiver.clone() {
+            Value::StdLibrary => match method {
+                "write" => self.call_native(NativeFunction::StdWrite, arguments, at),
+                "output" => self.call_native(NativeFunction::StdOutput, arguments, at),
+                "println" => self.call_native(NativeFunction::StdPrintln, arguments, at),
+                _ => Err(runtime_error(
+                    at,
+                    format!("std library has no function `{method}`"),
+                )),
+            },
             Value::List(values) => {
                 let mut values = values.borrow_mut();
                 match method {
