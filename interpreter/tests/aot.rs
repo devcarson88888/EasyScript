@@ -268,64 +268,62 @@ fn debug_without_std_import_does_not_require_a_library_directory() {
 }
 
 #[test]
-fn debug_and_build_require_library_directory_and_std_declaration_file() {
+fn debug_and_build_fall_back_to_embedded_std_resources() {
     let directory = temporary_directory();
     let source_path = directory.join("library_import.es");
     fs::write(
         &source_path,
-        "from library import std\nint main() { return code -> 0 }\n",
+        "from library import std\nint main() { std.write(\"embedded std\"); std.output(); return code -> 0 }\n",
     )
     .expect("write source");
     let binary = env!("CARGO_BIN_EXE_easyscript");
 
-    for (expected, create_library_directory) in [
-        ("missing library directory", false),
-        ("library std header file (std.esh) not found", true),
+    for (scenario, install_invalid_external_files) in [
+        ("missing external resources", false),
+        ("invalid external resources", true),
     ] {
-        if create_library_directory {
-            fs::create_dir(directory.join("library")).expect("create empty library directory");
+        if install_invalid_external_files {
+            let library_directory = directory.join("library");
+            fs::create_dir(&library_directory).expect("create external library directory");
+            fs::write(library_directory.join("std.esh"), "invalid std header")
+                .expect("write invalid external header");
+            fs::write(
+                library_directory.join("libes_std.ess"),
+                "invalid std package",
+            )
+            .expect("write invalid external package");
         }
+
         let debug = Command::new(binary)
             .arg("debug")
             .arg(&source_path)
             .output()
-            .expect("run debug");
+            .expect("run debug with embedded fallback");
+        assert!(
+            debug.status.success(),
+            "{scenario}: {}",
+            String::from_utf8_lossy(&debug.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&debug.stdout), "embedded std\n");
+
         let build = Command::new(binary)
             .arg("build")
             .arg(&source_path)
             .current_dir(&directory)
             .output()
-            .expect("run build");
-        assert!(!debug.status.success());
-        assert!(!build.status.success());
-        assert!(String::from_utf8_lossy(&debug.stderr).contains(expected));
-        assert_eq!(debug.stderr, build.stderr);
+            .expect("run build with embedded fallback");
+        assert!(
+            build.status.success(),
+            "{scenario}: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let run = Command::new(directory.join("library_import"))
+            .output()
+            .expect("run binary built with embedded std fallback");
+        assert!(run.status.success(), "{scenario}");
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "embedded std\n");
     }
 
-    assert!(!directory.join("library/std.esh").exists());
-    fs::write(
-        directory.join("library/std.esh"),
-        include_str!("../../library/std.esh"),
-    )
-    .expect("install std declaration only");
-    let debug = Command::new(binary)
-        .arg("debug")
-        .arg(&source_path)
-        .output()
-        .expect("run debug without std binary");
-    let build = Command::new(binary)
-        .arg("build")
-        .arg(&source_path)
-        .current_dir(&directory)
-        .output()
-        .expect("run build without std binary");
-    assert!(!debug.status.success());
-    assert!(!build.status.success());
-    assert!(
-        String::from_utf8_lossy(&debug.stderr).contains("std library package (std.ess) not found")
-    );
-    assert_eq!(debug.stderr, build.stderr);
-    assert!(!directory.join("library/std.ess").exists());
     fs::remove_dir_all(directory).expect("clean isolated test directory");
 }
 

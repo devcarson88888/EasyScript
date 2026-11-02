@@ -358,7 +358,7 @@
 
       <section id="libraries">
         <h2>标准库声明与链接</h2>
-        <p><code>stdlib/</code> 是独立 Rust 动态库 crate，只实现 <code>std::write</code>、<code>std::output</code>、<code>std::input</code> 三个 IO 原语。使用 <code>from library import std</code> 时，EasyScript 从当前 <code>.es</code> 脚本所在目录查找 <code>library/std.esh</code> 声明文件，再由运行时从 <code>library/std.ess</code> tar 包提取并动态加载当前平台库；编译器主程序和 AOT 生成程序都不包含 IO 实现。</p>
+        <p><code>stdlib/</code> 是独立 Rust 动态库 crate，只实现 <code>std::write</code>、<code>std::output</code>、<code>std::input</code> 三个 IO 原语。只有执行 <code>from library import std</code> 时才触发加载；运行时优先校验脚本旁的 <code>library/std.esh</code> 与 <code>library/libes_std.ess</code>，任一缺失、读取失败或校验失败时再使用编译阶段嵌入编译器二进制的完整原始资源。嵌入的是声明与 tar 归档，不是 IO 实现代码。</p>
         <pre><code><span class="comment">// library/std.esh</span>
 // ===== EasyScript STD Standard Header ===== //
 // Namespace : std
@@ -368,14 +368,11 @@ namespace std {
     extern std output -&gt; es_std_output
 }</code></pre>
         <p>声明文件中的 <code>extern</code> 仅将 EasyScript 名称映射到固定 ABI 符号，不写 <code>def</code>、<code>rules!</code> 或函数体。先独立编译目标平台的动态库，再用内置 libarchive 的打包工具创建归档；tar 根目录必须直接包含 <code>libes_std.so</code> 和 <code>es_std.dll</code> 两个文件。</p>
-        <pre><code>cargo build --manifest-path stdlib/Cargo.toml --release
-cargo run --manifest-path tools/std-package/Cargo.toml -- \
-  stdlib/target/release/libes_std.so path/to/es_std.dll \
-  examples/library/std.ess</code></pre>
-        <p>EasyScript 不会自动创建 <code>library/</code>。运行时只提取当前平台的文件，并缓存到系统临时目录；它不会调用外部 tar 命令。运行环境需能加载 libarchive（Windows 使用 <code>archive.dll</code>）。</p>
-        <div class="callout" role="note">
-          <strong>查找错误：</strong>脚本旁没有 <code>library/</code> 时报告 <code>missing library directory</code>；目录存在但没有 <code>std.esh</code> 时报告 <code>library std header file (std.esh) not found</code>。
-        </div>
+        <pre><code>        cargo build --manifest-path stdlib/Cargo.toml --release
+        cargo run --manifest-path tools/std-package/Cargo.toml -- \
+          stdlib/target/release/libes_std.so path/to/es_std.dll \
+          examples/library/libes_std.ess</code></pre>
+                <p><code>libes_std.ess</code> 是 tar 归档，根目录直接包含 <code>libes_std.so</code> 和 <code>es_std.dll</code>。运行时只提取当前平台的文件并缓存；不调用外部 tar。运行环境需能加载 libarchive（Windows 使用 <code>archive.dll</code>）。</p>
       </section>
 
       <section id="io">

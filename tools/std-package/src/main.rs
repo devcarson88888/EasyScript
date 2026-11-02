@@ -17,7 +17,7 @@ fn main() -> ExitCode {
 fn package() -> Result<(), String> {
     let args: Vec<_> = env::args_os().collect();
     if args.len() != 4 {
-        return Err("usage: package-std <libes_std.so> <es_std.dll> <std.ess>".to_owned());
+        return Err("usage: package-std <libes_std.so> <es_std.dll> <libes_std.ess>".to_owned());
     }
 
     let so = fs::read(&args[1])

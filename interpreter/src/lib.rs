@@ -359,12 +359,6 @@ impl Interpreter {
                 TopLevelItem::Import(import) if import.library == "std" => {
                     if self.std_library.is_none() {
                         let std_library = if let Some(directory) = &self.library_directory {
-                            if !directory.is_dir() {
-                                return Err(runtime_error(
-                                    (import.line, import.column),
-                                    "missing library directory",
-                                ));
-                            }
                             library::load_std_library_from_directory(directory)
                         } else if let Some(path) = &self.std_library_path {
                             library::StdLibrary::load(path)

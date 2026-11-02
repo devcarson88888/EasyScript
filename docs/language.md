@@ -47,15 +47,17 @@ libarchive tool:
 cargo build --manifest-path stdlib/Cargo.toml --release
 cargo run --manifest-path tools/std-package/Cargo.toml -- \
   stdlib/target/release/libes_std.so path/to/es_std.dll \
-  examples/library/std.ess
+  examples/library/libes_std.ess
 ```
 
-The `.ess` is an uncompressed tar archive whose root contains exactly
+The `libes_std.ess` file is an uncompressed tar archive whose root contains exactly
 `libes_std.so` and `es_std.dll`, with no subdirectories. The interpreter extracts
 only the current platform library and caches it; it does not invoke an external
 tar command. The host must provide a loadable libarchive library (on Windows,
 `archive.dll`). The interpreter and AOT-generated program do not contain the IO
-implementation.
+implementation. The compiler embeds the complete `library/std.esh` header and
+`library/libes_std.ess` archive as resources; it does not embed native IO
+implementation code.
 
 The standard library is declared in the UTF-8 header file
 `library/std.esh`, located in a `library` directory beside the `.es` script:
@@ -70,12 +72,13 @@ namespace std {
 }
 ```
 
-These are symbol declarations only, with no implementations. EasyScript does
-not create the directory or files automatically: a missing directory reports
-`missing library directory`, and a missing header reports
-`library std header file (std.esh) not found`. `examples/hello.es` uses the
-header at `examples/library/std.esh`; other scripts need a sibling `library/`
-containing `std.esh` and `std.ess`.
+These are symbol declarations only, with no implementations. EasyScript never
+loads std at startup; only `from library import std` triggers loading. It first
+tries the external `library/std.esh` and `library/libes_std.ess` files beside
+the script and uses them only if both validate. If either external resource is
+missing, unreadable, or invalid, it falls back to the copies embedded in the
+compiler binary. `examples/hello.es` uses the external header at
+`examples/library/std.esh`.
 
 `rules! std::write -> value` and `rules! std::output -> a` are syntax sugar for calls to
 `std.write(value)` and `std.output(a)`. Use write and output as a pair; calling

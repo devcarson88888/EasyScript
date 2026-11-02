@@ -12,6 +12,9 @@ use std::time::UNIX_EPOCH;
 use easyscript_archive::read_tar;
 use easyscript_parser::{Program, TopLevelItem};
 
+const EMBEDDED_STD_HEADER: &[u8] = include_bytes!("../../library/std.esh");
+const EMBEDDED_STD_PACKAGE: &[u8] = include_bytes!("../../library/libes_std.ess");
+
 pub fn validate_library_imports(
     program: &Program,
     source_path: &Path,
@@ -33,16 +36,22 @@ pub fn validate_library_imports(
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let library_directory = source_directory.join("library");
-    if !library_directory.is_dir() {
-        let import = imports[0];
-        return Err(format!(
-            "missing library directory at line {}, column {}",
-            import.line, import.column
-        ));
-    }
 
     let mut std_library_path = None;
     for import in imports {
+        if import.library == "std" {
+            std_library_path = Some(resolve_std_library_path(&library_directory).map_err(
+                |error| format!("{error} at line {}, column {}", import.line, import.column),
+            )?);
+            continue;
+        }
+
+        if !library_directory.is_dir() {
+            return Err(format!(
+                "missing library directory at line {}, column {}",
+                import.line, import.column
+            ));
+        }
         let declaration_path = library_directory.join(format!("{}.esh", import.library));
         if !declaration_path.is_file() {
             return Err(format!(
@@ -59,7 +68,7 @@ pub fn validate_library_imports(
                 import.column
             )
         })?;
-        let symbols = parse_declaration_file(&source).map_err(|error| {
+        let _symbols = parse_declaration_file(&source).map_err(|error| {
             format!(
                 "invalid library {} declaration at {}: {error} at line {}, column {}",
                 import.library,
@@ -68,26 +77,47 @@ pub fn validate_library_imports(
                 import.column
             )
         })?;
-        if import.library == "std" {
-            validate_std_symbols(&symbols).map_err(|error| {
-                format!("{error} at line {}, column {}", import.line, import.column)
-            })?;
-            let package_path = find_std_package(&library_directory).map_err(|error| {
-                format!("{error} at line {}, column {}", import.line, import.column)
-            })?;
-            std_library_path = Some(extract_native_library(&package_path).map_err(|error| {
-                format!("{error} at line {}, column {}", import.line, import.column)
-            })?);
-        }
     }
     Ok(std_library_path)
 }
 
 pub fn load_std_library_from_directory(directory: &Path) -> Result<StdLibrary, String> {
-    let declaration_path = directory.join("std.esh");
-    if !declaration_path.is_file() {
-        return Err("library std header file (std.esh) not found".to_owned());
+    let external_result =
+        external_std_library_path(directory).and_then(|path| StdLibrary::load(&path));
+    match external_result {
+        Ok(library) => Ok(library),
+        Err(external_error) => embedded_std_library_path()
+            .and_then(|path| StdLibrary::load(&path))
+            .map_err(|embedded_error| {
+                format!(
+                    "external std resources could not be used ({external_error}); embedded fallback could not be used ({embedded_error})"
+                )
+            }),
     }
+}
+
+fn resolve_std_library_path(directory: &Path) -> Result<PathBuf, String> {
+    let external_result = external_std_library_path(directory).and_then(|path| {
+        StdLibrary::load(&path)?;
+        Ok(path)
+    });
+    match external_result {
+        Ok(path) => Ok(path),
+        Err(external_error) => embedded_std_library_path()
+            .and_then(|path| {
+                StdLibrary::load(&path)?;
+                Ok(path)
+            })
+            .map_err(|embedded_error| {
+                format!(
+                    "external std resources could not be used ({external_error}); embedded fallback could not be used ({embedded_error})"
+                )
+            }),
+    }
+}
+
+fn external_std_library_path(directory: &Path) -> Result<PathBuf, String> {
+    let declaration_path = directory.join("std.esh");
     let source = fs::read_to_string(&declaration_path).map_err(|error| {
         format!(
             "could not read library std at {}: {error}",
@@ -102,8 +132,57 @@ pub fn load_std_library_from_directory(directory: &Path) -> Result<StdLibrary, S
     })?;
     validate_std_symbols(&symbols)?;
     let package_path = find_std_package(directory)?;
-    let native_library_path = extract_native_library(&package_path)?;
-    StdLibrary::load(&native_library_path)
+    extract_native_library(&package_path)
+}
+
+fn embedded_std_library_path() -> Result<PathBuf, String> {
+    let source = std::str::from_utf8(EMBEDDED_STD_HEADER)
+        .map_err(|error| format!("embedded std.esh is not valid UTF-8: {error}"))?;
+    let symbols = parse_declaration_file(source)
+        .map_err(|error| format!("embedded std.esh is invalid: {error}"))?;
+    validate_std_symbols(&symbols)
+        .map_err(|error| format!("embedded std.esh is invalid: {error}"))?;
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    EMBEDDED_STD_PACKAGE.hash(&mut hasher);
+    let package_path = std::env::temp_dir()
+        .join("easyscript")
+        .join(format!("embedded-std-{:016x}.ess", hasher.finish()));
+    if !matches!(
+        fs::read(&package_path),
+        Ok(contents) if contents == EMBEDDED_STD_PACKAGE
+    ) {
+        let parent = package_path
+            .parent()
+            .ok_or_else(|| "embedded std package cache has no parent directory".to_owned())?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("could not create embedded std cache: {error}"))?;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temporary_path =
+            package_path.with_extension(format!("ess.tmp-{}-{nonce}", std::process::id()));
+        fs::write(&temporary_path, EMBEDDED_STD_PACKAGE)
+            .map_err(|error| format!("could not cache embedded std package: {error}"))?;
+        if let Err(error) = fs::rename(&temporary_path, &package_path) {
+            if !matches!(
+                fs::read(&package_path),
+                Ok(contents) if contents == EMBEDDED_STD_PACKAGE
+            ) {
+                fs::remove_file(&temporary_path).map_err(|cleanup_error| {
+                    format!(
+                        "could not install embedded std package ({error}) or clean its temporary file: {cleanup_error}"
+                    )
+                })?;
+                return Err(format!("could not install embedded std package: {error}"));
+            }
+            fs::remove_file(&temporary_path).map_err(|cleanup_error| {
+                format!("could not clean embedded std temporary file: {cleanup_error}")
+            })?;
+        }
+    }
+    extract_native_library(&package_path)
 }
 
 fn parse_declaration_file(source: &str) -> Result<BTreeMap<String, String>, String> {
@@ -137,15 +216,16 @@ fn validate_std_symbols(symbols: &BTreeMap<String, String>) -> Result<(), String
 }
 
 fn find_std_package(directory: &Path) -> Result<PathBuf, String> {
-    let package_path = directory.join("std.ess");
-    if package_path.is_file() {
-        Ok(package_path)
-    } else {
-        Err(format!(
-            "std library package (std.ess) not found at {}",
-            package_path.display()
-        ))
+    for package_name in ["libes_std.ess", "std.ess"] {
+        let package_path = directory.join(package_name);
+        if package_path.is_file() {
+            return Ok(package_path);
+        }
     }
+    Err(format!(
+        "std library package (libes_std.ess) not found at {}",
+        directory.join("libes_std.ess").display()
+    ))
 }
 
 fn extract_native_library(package_path: &Path) -> Result<PathBuf, String> {
@@ -174,9 +254,6 @@ fn extract_native_library(package_path: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(&cache_directory)
         .map_err(|error| format!("could not create std library cache: {error}"))?;
     let cache_path = cache_directory.join(native_filename);
-    if cache_path.is_file() {
-        return Ok(cache_path);
-    }
 
     let expected_entries = ["libes_std.so", "es_std.dll"];
     let mut found = BTreeMap::new();
@@ -206,6 +283,12 @@ fn extract_native_library(package_path: &Path) -> Result<PathBuf, String> {
     let contents = found
         .remove(native_filename)
         .ok_or_else(|| format!("std package is missing {native_filename}"))?;
+    if matches!(
+        fs::read(&cache_path),
+        Ok(cached) if cached.as_slice() == contents.as_slice()
+    ) {
+        return Ok(cache_path);
+    }
     let nonce = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

@@ -10,7 +10,7 @@ pub fn build_std_library(directory: &Path) -> PathBuf {
         include_str!("../../../library/std.esh"),
     )
     .expect("install std declaration");
-    let package_path = library_directory.join("std.ess");
+    let package_path = library_directory.join("libes_std.ess");
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../stdlib/src/lib.rs");
     let native_filename = if cfg!(windows) {
         "es_std.dll"
@@ -34,7 +34,7 @@ pub fn build_std_library(directory: &Path) -> PathBuf {
         "std library compilation failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let archive_path = library_directory.join("std.ess.tmp");
+    let archive_path = library_directory.join("libes_std.ess.tmp");
     let native_library = fs::read(&native_path).expect("read native std library");
     let (so, dll) = if cfg!(windows) {
         (
