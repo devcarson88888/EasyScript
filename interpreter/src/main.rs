@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use easyscript_compiler::compile_to_elf_with_std_library;
-use easyscript_interpreter::{execute_with_std_library, library::validate_library_imports};
+use easyscript_interpreter::{execute_with_library_directory, library::validate_library_imports};
 use easyscript_parser::{lex, parse_tokens, Program};
 
 fn main() -> ExitCode {
@@ -104,14 +104,11 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let std_library_path = match validate_library_imports(&program, Path::new(&source_path)) {
-        Ok(path) => path,
-        Err(error) => {
-            eprintln!("{error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let result = match execute_with_std_library(&program, std_library_path.as_deref()) {
+    let source_directory = Path::new(&source_path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let result = match execute_with_library_directory(&program, &source_directory.join("library")) {
         Ok(result) => result,
         Err(error) => {
             eprintln!("{error}");

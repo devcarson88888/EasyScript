@@ -34,9 +34,10 @@ pub fn validate_library_imports(
         .unwrap_or_else(|| Path::new("."));
     let library_directory = source_directory.join("library");
     if !library_directory.is_dir() {
+        let import = imports[0];
         return Err(format!(
-            "missing library directory beside {}",
-            source_path.display()
+            "missing library directory at line {}, column {}",
+            import.line, import.column
         ));
     }
 
@@ -45,31 +46,64 @@ pub fn validate_library_imports(
         let declaration_path = library_directory.join(format!("{}.esh", import.library));
         if !declaration_path.is_file() {
             return Err(format!(
-                "library {} header file ({}.esh) not found",
-                import.library, import.library
+                "library {} header file ({}.esh) not found at line {}, column {}",
+                import.library, import.library, import.line, import.column
             ));
         }
         let source = fs::read_to_string(&declaration_path).map_err(|error| {
             format!(
-                "could not read library {} at {}: {error}",
+                "could not read library {} at {}: {error} at line {}, column {}",
                 import.library,
-                declaration_path.display()
+                declaration_path.display(),
+                import.line,
+                import.column
             )
         })?;
         let symbols = parse_declaration_file(&source).map_err(|error| {
             format!(
-                "invalid library {} declaration at {}: {error}",
+                "invalid library {} declaration at {}: {error} at line {}, column {}",
                 import.library,
-                declaration_path.display()
+                declaration_path.display(),
+                import.line,
+                import.column
             )
         })?;
         if import.library == "std" {
-            validate_std_symbols(&symbols)?;
-            let package_path = find_std_package(&library_directory)?;
-            std_library_path = Some(extract_native_library(&package_path)?);
+            validate_std_symbols(&symbols).map_err(|error| {
+                format!("{error} at line {}, column {}", import.line, import.column)
+            })?;
+            let package_path = find_std_package(&library_directory).map_err(|error| {
+                format!("{error} at line {}, column {}", import.line, import.column)
+            })?;
+            std_library_path = Some(extract_native_library(&package_path).map_err(|error| {
+                format!("{error} at line {}, column {}", import.line, import.column)
+            })?);
         }
     }
     Ok(std_library_path)
+}
+
+pub fn load_std_library_from_directory(directory: &Path) -> Result<StdLibrary, String> {
+    let declaration_path = directory.join("std.esh");
+    if !declaration_path.is_file() {
+        return Err("library std header file (std.esh) not found".to_owned());
+    }
+    let source = fs::read_to_string(&declaration_path).map_err(|error| {
+        format!(
+            "could not read library std at {}: {error}",
+            declaration_path.display()
+        )
+    })?;
+    let symbols = parse_declaration_file(&source).map_err(|error| {
+        format!(
+            "invalid library std declaration at {}: {error}",
+            declaration_path.display()
+        )
+    })?;
+    validate_std_symbols(&symbols)?;
+    let package_path = find_std_package(directory)?;
+    let native_library_path = extract_native_library(&package_path)?;
+    StdLibrary::load(&native_library_path)
 }
 
 fn parse_declaration_file(source: &str) -> Result<BTreeMap<String, String>, String> {

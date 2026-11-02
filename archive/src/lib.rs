@@ -16,20 +16,18 @@ type EntryPathname = unsafe extern "C" fn(*mut c_void) -> *const c_char;
 type EntryFiletype = unsafe extern "C" fn(*mut c_void) -> c_int;
 type EntrySize = unsafe extern "C" fn(*mut c_void) -> i64;
 type ReadData = unsafe extern "C" fn(*mut c_void, *mut c_void, usize) -> isize;
-type ReadFree = unsafe extern "C" fn(*mut c_void) -> c_int;
+type ArchiveFree = unsafe extern "C" fn(*mut c_void) -> c_int;
 type WriteNew = unsafe extern "C" fn() -> *mut c_void;
 type WriteSetFormat = unsafe extern "C" fn(*mut c_void) -> c_int;
 type WriteOpenFilename = unsafe extern "C" fn(*mut c_void, *const c_char) -> c_int;
 type EntryNew = unsafe extern "C" fn() -> *mut c_void;
 type EntrySetPathname = unsafe extern "C" fn(*mut c_void, *const c_char);
-type EntrySetFiletype = unsafe extern "C" fn(*mut c_void, c_int);
-type EntrySetPerm = unsafe extern "C" fn(*mut c_void, c_int);
+type EntrySetInt = unsafe extern "C" fn(*mut c_void, c_int);
 type EntrySetSize = unsafe extern "C" fn(*mut c_void, i64);
 type WriteHeader = unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int;
 type WriteData = unsafe extern "C" fn(*mut c_void, *const c_void, usize) -> isize;
 type EntryFree = unsafe extern "C" fn(*mut c_void);
 type WriteClose = unsafe extern "C" fn(*mut c_void) -> c_int;
-type WriteFree = unsafe extern "C" fn(*mut c_void) -> c_int;
 type ErrorString = unsafe extern "C" fn(*mut c_void) -> *const c_char;
 
 struct Api {
@@ -43,20 +41,20 @@ struct Api {
     entry_filetype: EntryFiletype,
     entry_size: EntrySize,
     read_data: ReadData,
-    read_free: ReadFree,
+    read_free: ArchiveFree,
     write_new: WriteNew,
     write_set_format_ustar: WriteSetFormat,
     write_open_filename: WriteOpenFilename,
     entry_new: EntryNew,
     entry_set_pathname: EntrySetPathname,
-    entry_set_filetype: EntrySetFiletype,
-    entry_set_perm: EntrySetPerm,
+    entry_set_filetype: EntrySetInt,
+    entry_set_perm: EntrySetInt,
     entry_set_size: EntrySetSize,
     write_header: WriteHeader,
     write_data: WriteData,
     entry_free: EntryFree,
     write_close: WriteClose,
-    write_free: WriteFree,
+    write_free: ArchiveFree,
     error_string: ErrorString,
 }
 
@@ -99,20 +97,20 @@ impl Api {
                 entry_filetype: symbol!("archive_entry_filetype", EntryFiletype),
                 entry_size: symbol!("archive_entry_size", EntrySize),
                 read_data: symbol!("archive_read_data", ReadData),
-                read_free: symbol!("archive_read_free", ReadFree),
+                read_free: symbol!("archive_read_free", ArchiveFree),
                 write_new: symbol!("archive_write_new", WriteNew),
                 write_set_format_ustar: symbol!("archive_write_set_format_ustar", WriteSetFormat),
                 write_open_filename: symbol!("archive_write_open_filename", WriteOpenFilename),
                 entry_new: symbol!("archive_entry_new", EntryNew),
                 entry_set_pathname: symbol!("archive_entry_set_pathname", EntrySetPathname),
-                entry_set_filetype: symbol!("archive_entry_set_filetype", EntrySetFiletype),
-                entry_set_perm: symbol!("archive_entry_set_perm", EntrySetPerm),
+                entry_set_filetype: symbol!("archive_entry_set_filetype", EntrySetInt),
+                entry_set_perm: symbol!("archive_entry_set_perm", EntrySetInt),
                 entry_set_size: symbol!("archive_entry_set_size", EntrySetSize),
                 write_header: symbol!("archive_write_header", WriteHeader),
                 write_data: symbol!("archive_write_data", WriteData),
                 entry_free: symbol!("archive_entry_free", EntryFree),
                 write_close: symbol!("archive_write_close", WriteClose),
-                write_free: symbol!("archive_write_free", WriteFree),
+                write_free: symbol!("archive_write_free", ArchiveFree),
                 error_string: symbol!("archive_error_string", ErrorString),
                 _library: library,
             };
@@ -122,7 +120,7 @@ impl Api {
     }
 
     fn error(&self, archive: *mut c_void, action: &str) -> String {
-        let detail = unsafe {
+        let message = unsafe {
             let pointer = (self.error_string)(archive);
             if pointer.is_null() {
                 "unknown libarchive error".to_owned()
@@ -130,7 +128,7 @@ impl Api {
                 CStr::from_ptr(pointer).to_string_lossy().into_owned()
             }
         };
-        format!("{action}: {detail}")
+        format!("{action}: {message}")
     }
 }
 
@@ -149,15 +147,14 @@ pub fn read_tar(path: &Path) -> Result<Vec<TarEntry>, String> {
     }
     let result = (|| {
         for enable in [api.read_support_filter_all, api.read_support_format_tar] {
-            let status = unsafe { enable(archive) };
-            if status < 0 {
+            if unsafe { enable(archive) } < 0 {
                 return Err(api.error(archive, "could not enable tar reader"));
             }
         }
-        let status = unsafe { (api.read_open_filename)(archive, path.as_ptr(), 10_240) };
-        if status < 0 {
+        if unsafe { (api.read_open_filename)(archive, path.as_ptr(), 10_240) } < 0 {
             return Err(api.error(archive, "could not open tar archive"));
         }
+
         let mut entries = Vec::new();
         let mut total_size = 0usize;
         loop {
@@ -180,11 +177,9 @@ pub fn read_tar(path: &Path) -> Result<Vec<TarEntry>, String> {
                 if pointer.is_null() {
                     return Err("tar entry has no pathname".to_owned());
                 }
-                CStr::from_ptr(pointer)
-                    .to_str()
-                    .map_err(|_| "tar entry pathname is not UTF-8".to_owned())?
-                    .to_owned()
+                CStr::from_ptr(pointer).to_string_lossy().into_owned()
             };
+            let is_regular_file = unsafe { (api.entry_filetype)(entry) } == FILE_TYPE_REGULAR;
             let size = unsafe { (api.entry_size)(entry) };
             if !(0..=MAX_ENTRY_SIZE).contains(&size) {
                 return Err(format!("tar entry `{pathname}` has an invalid size"));
@@ -193,6 +188,7 @@ pub fn read_tar(path: &Path) -> Result<Vec<TarEntry>, String> {
                 .checked_add(size as usize)
                 .filter(|total| *total <= MAX_ARCHIVE_SIZE)
                 .ok_or_else(|| "tar archive exceeds the maximum uncompressed size".to_owned())?;
+
             let mut data = Vec::with_capacity(size as usize);
             let mut buffer = [0u8; 16 * 1024];
             loop {
@@ -211,12 +207,12 @@ pub fn read_tar(path: &Path) -> Result<Vec<TarEntry>, String> {
                     return Err(format!("tar entry `{pathname}` exceeds its declared size"));
                 }
             }
-            if data.len() != size as usize {
+            if data.len() as i64 != size {
                 return Err(format!("tar entry `{pathname}` is truncated"));
             }
             entries.push(TarEntry {
                 pathname,
-                is_regular_file: unsafe { (api.entry_filetype)(entry) } == FILE_TYPE_REGULAR,
+                is_regular_file,
                 data,
             });
         }
@@ -240,7 +236,7 @@ pub fn write_tar(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), String> {
             return Err(api.error(archive, "could not select tar format"));
         }
         if unsafe { (api.write_open_filename)(archive, path.as_ptr()) } < 0 {
-            return Err(api.error(archive, "could not open tar output"));
+            return Err(api.error(archive, "could not create tar archive"));
         }
         for (pathname, data) in entries {
             let pathname = CString::new(*pathname)
@@ -260,19 +256,15 @@ pub fn write_tar(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), String> {
             if status < 0 {
                 return Err(api.error(archive, "could not write tar header"));
             }
-            let mut written = 0;
-            while written < data.len() {
+            let mut offset = 0;
+            while offset < data.len() {
                 let count = unsafe {
-                    (api.write_data)(
-                        archive,
-                        data[written..].as_ptr().cast(),
-                        data.len() - written,
-                    )
+                    (api.write_data)(archive, data[offset..].as_ptr().cast(), data.len() - offset)
                 };
                 if count <= 0 {
                     return Err(api.error(archive, "could not write tar entry data"));
                 }
-                written += count as usize;
+                offset += count as usize;
             }
         }
         if unsafe { (api.write_close)(archive) } < 0 {

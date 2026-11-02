@@ -360,7 +360,7 @@
         <h2>标准库声明与链接</h2>
         <p><code>stdlib/</code> 是独立 Rust 动态库 crate，只实现 <code>std::write</code>、<code>std::output</code>、<code>std::input</code> 三个 IO 原语。使用 <code>from library import std</code> 时，EasyScript 从当前 <code>.es</code> 脚本所在目录查找 <code>library/std.esh</code> 声明文件，再由运行时从 <code>library/std.ess</code> tar 包提取并动态加载当前平台库；编译器主程序和 AOT 生成程序都不包含 IO 实现。</p>
         <pre><code><span class="comment">// library/std.esh</span>
-// ===== EasyScript STD Standard Library ===== //
+// ===== EasyScript STD Standard Header ===== //
 // Namespace : std
 namespace std {
     extern std write -&gt; es_std_write

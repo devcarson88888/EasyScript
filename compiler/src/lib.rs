@@ -197,7 +197,7 @@ fn validate_block(
             Statement::Rules(statement) => {
                 if !imported_std {
                     return Err(format!(
-                        "EasyScript AOT error: `rules!` IO commands require `from library import std;` at line {}, column {}",
+                        "EasyScript AOT error: namespace \"std\" is not imported at line {}, column {}",
                         statement.line, statement.column
                     ));
                 }
@@ -282,7 +282,7 @@ fn validate_std_call(
 ) -> Result<(), String> {
     if !imported_std {
         return Err(format!(
-            "EasyScript AOT error: std IO functions require `from library import std;` at line {}, column {}",
+            "EasyScript AOT error: namespace \"std\" is not imported at line {}, column {}",
             expression.line, expression.column
         ));
     }

@@ -61,7 +61,7 @@ The standard library is declared in the UTF-8 header file
 `library/std.esh`, located in a `library` directory beside the `.es` script:
 
 ```es
-// ===== EasyScript STD Standard Library ===== //
+// ===== EasyScript STD Standard Header ===== //
 // Namespace : std
 namespace std {
     extern std write -> es_std_write

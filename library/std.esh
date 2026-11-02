@@ -1,4 +1,4 @@
-// ===== EasyScript STD Standard Library ===== //
+// ===== EasyScript STD Standard Header ===== //
 // Namespace : std
 namespace std {
     extern std write -> es_std_write

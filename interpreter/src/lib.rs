@@ -282,6 +282,8 @@ pub struct Interpreter {
     steps: usize,
     std_imported: bool,
     std_library: Option<library::StdLibrary>,
+    std_library_path: Option<std::path::PathBuf>,
+    library_directory: Option<std::path::PathBuf>,
 }
 
 impl Default for Interpreter {
@@ -312,6 +314,8 @@ impl Interpreter {
             steps: 0,
             std_imported: false,
             std_library: None,
+            std_library_path: None,
+            library_directory: None,
         }
     }
 
@@ -354,10 +358,21 @@ impl Interpreter {
                 ),
                 TopLevelItem::Import(import) if import.library == "std" => {
                     if self.std_library.is_none() {
-                        return Err(runtime_error(
-                            (import.line, import.column),
-                            "std library binary has not been loaded",
-                        ));
+                        let std_library = if let Some(directory) = &self.library_directory {
+                            if !directory.is_dir() {
+                                return Err(runtime_error(
+                                    (import.line, import.column),
+                                    "missing library directory",
+                                ));
+                            }
+                            library::load_std_library_from_directory(directory)
+                        } else if let Some(path) = &self.std_library_path {
+                            library::StdLibrary::load(path)
+                        } else {
+                            Err("std library binary has not been loaded".to_owned())
+                        }
+                        .map_err(|error| runtime_error((import.line, import.column), error))?;
+                        self.std_library = Some(std_library);
                     }
                     self.std_imported = true;
                     Scope::define(&self.globals, "std", Value::StdLibrary);
@@ -504,7 +519,7 @@ impl Interpreter {
                     if !self.std_imported {
                         return Err(runtime_error(
                             (statement.line, statement.column),
-                            "`rules!` IO commands require `from library import std;`",
+                            "namespace \"std\" is not imported",
                         ));
                     }
                     let input_target = if operation == "std::input" {
@@ -670,6 +685,14 @@ impl Interpreter {
                 method,
                 arguments,
             } => {
+                if matches!(&receiver.kind, ExprKind::Identifier(name) if name == "std")
+                    && !self.std_imported
+                {
+                    return Err(runtime_error(
+                        position(expression),
+                        "namespace \"std\" is not imported",
+                    ));
+                }
                 let receiver = self.eval(receiver, environment)?;
                 let arguments = self.eval_arguments(arguments, environment)?;
                 self.call_method(receiver, method, arguments, position(expression))
@@ -1077,10 +1100,7 @@ impl Interpreter {
             }
             NativeFunction::StdInput => {
                 if !self.std_imported {
-                    return Err(runtime_error(
-                        at,
-                        "std IO functions require `from library import std;`",
-                    ));
+                    return Err(runtime_error(at, "namespace \"std\" is not imported"));
                 }
                 expect_argument_count(&arguments, 0, at)?;
                 let input = self
@@ -1093,10 +1113,7 @@ impl Interpreter {
             }
             NativeFunction::StdWrite => {
                 if !self.std_imported {
-                    return Err(runtime_error(
-                        at,
-                        "std IO functions require `from library import std;`",
-                    ));
+                    return Err(runtime_error(at, "namespace \"std\" is not imported"));
                 }
                 expect_argument_count(&arguments, 1, at)?;
                 let value = arguments[0].to_string();
@@ -1110,10 +1127,7 @@ impl Interpreter {
             }
             NativeFunction::StdOutput => {
                 if !self.std_imported {
-                    return Err(runtime_error(
-                        at,
-                        "std IO functions require `from library import std;`",
-                    ));
+                    return Err(runtime_error(at, "namespace \"std\" is not imported"));
                 }
                 if arguments.len() > 1 {
                     return Err(runtime_error(
@@ -1961,11 +1975,17 @@ pub fn execute_with_std_library(
 ) -> Result<RunResult, RuntimeError> {
     let mut interpreter = Interpreter::new();
     if let Some(path) = library_path {
-        interpreter.std_library = Some(
-            library::StdLibrary::load(path)
-                .map_err(|error| runtime_error((program.line, program.column), error))?,
-        );
+        interpreter.std_library_path = Some(path.to_path_buf());
     }
+    interpreter.execute(program)
+}
+
+pub fn execute_with_library_directory(
+    program: &Program,
+    library_directory: &std::path::Path,
+) -> Result<RunResult, RuntimeError> {
+    let mut interpreter = Interpreter::new();
+    interpreter.library_directory = Some(library_directory.to_path_buf());
     interpreter.execute(program)
 }
 

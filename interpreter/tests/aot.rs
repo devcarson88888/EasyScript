@@ -222,6 +222,52 @@ fn debug_and_build_report_the_same_parser_error() {
 }
 
 #[test]
+fn debug_and_build_reject_std_namespace_calls_without_import() {
+    let directory = temporary_directory();
+    let source_path = directory.join("unimported_std.es");
+    fs::write(&source_path, "int main() { std.write(\"not imported\") }\n").expect("write source");
+    let binary = env!("CARGO_BIN_EXE_easyscript");
+
+    let debug = Command::new(binary)
+        .arg("debug")
+        .arg(&source_path)
+        .output()
+        .expect("run debug");
+    let build = Command::new(binary)
+        .arg("build")
+        .arg(&source_path)
+        .current_dir(&directory)
+        .output()
+        .expect("run build");
+    assert!(!debug.status.success());
+    assert!(!build.status.success());
+    assert!(String::from_utf8_lossy(&debug.stderr).contains("namespace \"std\" is not imported"));
+    assert!(String::from_utf8_lossy(&build.stderr).contains("namespace \"std\" is not imported"));
+
+    fs::remove_dir_all(directory).expect("clean isolated test directory");
+}
+
+#[test]
+fn debug_without_std_import_does_not_require_a_library_directory() {
+    let directory = temporary_directory();
+    let source_path = directory.join("no_std.es");
+    fs::write(&source_path, "int main() { return code -> 0 }\n").expect("write source");
+
+    let debug = Command::new(env!("CARGO_BIN_EXE_easyscript"))
+        .arg("debug")
+        .arg(&source_path)
+        .output()
+        .expect("run debug without std import");
+    assert!(
+        debug.status.success(),
+        "{}",
+        String::from_utf8_lossy(&debug.stderr)
+    );
+    assert!(!directory.join("library").exists());
+    fs::remove_dir_all(directory).expect("clean isolated test directory");
+}
+
+#[test]
 fn debug_and_build_require_library_directory_and_std_declaration_file() {
     let directory = temporary_directory();
     let source_path = directory.join("library_import.es");

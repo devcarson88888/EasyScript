@@ -210,6 +210,37 @@ stop;
 }
 
 #[test]
+fn std_namespace_calls_require_an_explicit_import() {
+    let error = run_source(
+        r#"int main() {
+    std.write("must not be implicitly available");
+}
+"#,
+    )
+    .unwrap_err();
+    match error {
+        easyscript_interpreter::RunError::Runtime(error) => {
+            assert_eq!(error.message, "namespace \"std\" is not imported");
+        }
+        easyscript_interpreter::RunError::Parse(error) => panic!("unexpected parse error: {error}"),
+    }
+
+    let error = run_source(
+        r#"int main() {
+    rules! std::write -> "must not be implicitly available"
+}
+"#,
+    )
+    .unwrap_err();
+    match error {
+        easyscript_interpreter::RunError::Runtime(error) => {
+            assert_eq!(error.message, "namespace \"std\" is not imported");
+        }
+        easyscript_interpreter::RunError::Parse(error) => panic!("unexpected parse error: {error}"),
+    }
+}
+
+#[test]
 fn rules_write_stores_without_printing_until_output_reads_a() {
     let result = run_with_std_binary(
         r#"from library import std
@@ -400,7 +431,7 @@ fn std_io_requires_an_explicit_import_and_println_is_not_builtin() {
     let error = run_source("int main() {\n    rules! output -> 1;\n}\n").unwrap_err();
     match error {
         easyscript_interpreter::RunError::Runtime(error) => {
-            assert!(error.message.contains("from library import std"));
+            assert!(error.message.contains("namespace \"std\" is not imported"));
         }
         easyscript_interpreter::RunError::Parse(error) => panic!("unexpected parse error: {error}"),
     }
