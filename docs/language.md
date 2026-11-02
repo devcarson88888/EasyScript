@@ -47,7 +47,7 @@ libarchive tool:
 cargo build --manifest-path stdlib/Cargo.toml --release
 cargo run --manifest-path tools/std-package/Cargo.toml -- \
   stdlib/target/release/libes_std.so path/to/es_std.dll \
-  examples/library/libes_std.ess
+  examples/library/std.ess
 ```
 
 The `.ess` is an uncompressed tar archive whose root contains exactly
@@ -75,7 +75,7 @@ not create the directory or files automatically: a missing directory reports
 `missing library directory`, and a missing header reports
 `library std header file (std.esh) not found`. `examples/hello.es` uses the
 header at `examples/library/std.esh`; other scripts need a sibling `library/`
-containing `std.esh` and `libes_std.ess`.
+containing `std.esh` and `std.ess`.
 
 `rules! std::write -> value` and `rules! std::output -> a` are syntax sugar for calls to
 `std.write(value)` and `std.output(a)`. Use write and output as a pair; calling

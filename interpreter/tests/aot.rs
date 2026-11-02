@@ -275,9 +275,11 @@ fn debug_and_build_require_library_directory_and_std_declaration_file() {
         .expect("run build without std binary");
     assert!(!debug.status.success());
     assert!(!build.status.success());
-    assert!(String::from_utf8_lossy(&debug.stderr).contains("std library package not found"));
+    assert!(
+        String::from_utf8_lossy(&debug.stderr).contains("std library package (std.ess) not found")
+    );
     assert_eq!(debug.stderr, build.stderr);
-    assert!(!directory.join("library/libes_std.ess").exists());
+    assert!(!directory.join("library/std.ess").exists());
     fs::remove_dir_all(directory).expect("clean isolated test directory");
 }
 

@@ -103,12 +103,12 @@ fn validate_std_symbols(symbols: &BTreeMap<String, String>) -> Result<(), String
 }
 
 fn find_std_package(directory: &Path) -> Result<PathBuf, String> {
-    let package_path = directory.join("libes_std.ess");
+    let package_path = directory.join("std.ess");
     if package_path.is_file() {
         Ok(package_path)
     } else {
         Err(format!(
-            "std library package not found at {}",
+            "std library package (std.ess) not found at {}",
             package_path.display()
         ))
     }
