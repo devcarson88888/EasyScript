@@ -1,9 +1,10 @@
+pub mod library;
+
 use easyscript_parser::ast::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::io::BufRead;
 use std::rc::Rc;
 
 type Env = Rc<RefCell<Scope>>;
@@ -233,6 +234,7 @@ impl Error for RuntimeError {}
 #[derive(Debug, Clone, Default)]
 pub struct RunResult {
     pub output: Vec<String>,
+    pub output_already_written: Vec<bool>,
     pub value: Option<Value>,
 }
 
@@ -276,9 +278,10 @@ impl Iterator for Iteration {
 pub struct Interpreter {
     globals: Env,
     output: Vec<String>,
-    std_buffer: Option<Value>,
+    output_already_written: Vec<bool>,
     steps: usize,
     std_imported: bool,
+    std_library: Option<library::StdLibrary>,
 }
 
 impl Default for Interpreter {
@@ -305,15 +308,16 @@ impl Interpreter {
         Self {
             globals,
             output: Vec::new(),
-            std_buffer: None,
+            output_already_written: Vec::new(),
             steps: 0,
             std_imported: false,
+            std_library: None,
         }
     }
 
     pub fn execute(&mut self, program: &Program) -> Result<RunResult, RuntimeError> {
         self.output.clear();
-        self.std_buffer = None;
+        self.output_already_written.clear();
         self.steps = 0;
         self.std_imported = false;
         let mut entry_point = None;
@@ -349,6 +353,12 @@ impl Interpreter {
                     Value::ClassType(definition.clone()),
                 ),
                 TopLevelItem::Import(import) if import.library == "std" => {
+                    if self.std_library.is_none() {
+                        return Err(runtime_error(
+                            (import.line, import.column),
+                            "std library binary has not been loaded",
+                        ));
+                    }
                     self.std_imported = true;
                     Scope::define(&self.globals, "std", Value::StdLibrary);
                     for (name, native) in [
@@ -399,6 +409,7 @@ impl Interpreter {
         )?);
         Ok(RunResult {
             output: self.output.clone(),
+            output_already_written: self.output_already_written.clone(),
             value,
         })
     }
@@ -771,6 +782,7 @@ impl Interpreter {
             ExprKind::Help { argument } => {
                 let value = self.eval(argument, environment)?;
                 self.output.push(value.to_string());
+                self.output_already_written.push(false);
                 Ok(Value::Null)
             }
             ExprKind::Docstring { value } => Ok(Value::String(value.clone())),
@@ -1071,19 +1083,12 @@ impl Interpreter {
                     ));
                 }
                 expect_argument_count(&arguments, 0, at)?;
-                let mut input = String::new();
-                std::io::stdin()
-                    .lock()
-                    .read_line(&mut input)
-                    .map_err(|error| {
-                        runtime_error(at, format!("could not read from stdin: {error}"))
-                    })?;
-                if input.ends_with('\n') {
-                    input.pop();
-                    if input.ends_with('\r') {
-                        input.pop();
-                    }
-                }
+                let input = self
+                    .std_library
+                    .as_ref()
+                    .expect("std library checked at import")
+                    .input()
+                    .map_err(|error| runtime_error(at, error))?;
                 Ok(Value::String(input))
             }
             NativeFunction::StdWrite => {
@@ -1094,8 +1099,13 @@ impl Interpreter {
                     ));
                 }
                 expect_argument_count(&arguments, 1, at)?;
+                let value = arguments[0].to_string();
+                self.std_library
+                    .as_ref()
+                    .expect("std library checked at import")
+                    .write(value.as_bytes())
+                    .map_err(|error| runtime_error(at, error))?;
                 Scope::assign(&self.globals, "a", arguments[0].clone());
-                self.std_buffer = Some(arguments[0].clone());
                 Ok(Value::Null)
             }
             NativeFunction::StdOutput => {
@@ -1111,13 +1121,18 @@ impl Interpreter {
                         "std.output() accepts zero or one argument",
                     ));
                 }
-                let value = self.std_buffer.clone().ok_or_else(|| {
-                    runtime_error(
-                        at,
-                        "std.output() called before std.write() populated the global buffer",
-                    )
-                })?;
-                self.output.push(format!("{value}\n"));
+                let std_library = self
+                    .std_library
+                    .as_ref()
+                    .expect("std library checked at import");
+                std_library
+                    .output()
+                    .map_err(|error| runtime_error(at, error))?;
+                let buffered_value = std_library
+                    .buffered_value()
+                    .map_err(|error| runtime_error(at, error))?;
+                self.output.push(format!("{buffered_value}\n"));
+                self.output_already_written.push(true);
                 Ok(Value::Null)
             }
         }
@@ -1940,9 +1955,31 @@ pub fn execute(program: &Program) -> Result<RunResult, RuntimeError> {
     Interpreter::new().execute(program)
 }
 
+pub fn execute_with_std_library(
+    program: &Program,
+    library_path: Option<&std::path::Path>,
+) -> Result<RunResult, RuntimeError> {
+    let mut interpreter = Interpreter::new();
+    if let Some(path) = library_path {
+        interpreter.std_library = Some(
+            library::StdLibrary::load(path)
+                .map_err(|error| runtime_error((program.line, program.column), error))?,
+        );
+    }
+    interpreter.execute(program)
+}
+
 pub fn run_source(source: &str) -> Result<RunResult, RunError> {
     let program = easyscript_parser::parse(source).map_err(RunError::Parse)?;
     execute(&program).map_err(RunError::Runtime)
+}
+
+pub fn run_source_with_std_library(
+    source: &str,
+    library_path: &std::path::Path,
+) -> Result<RunResult, RunError> {
+    let program = easyscript_parser::parse(source).map_err(RunError::Parse)?;
+    execute_with_std_library(&program, Some(library_path)).map_err(RunError::Runtime)
 }
 
 #[derive(Debug)]

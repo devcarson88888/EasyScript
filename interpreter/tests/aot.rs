@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod common;
+
 fn temporary_directory() -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -17,9 +19,14 @@ fn temporary_directory() -> PathBuf {
     path
 }
 
+fn install_std_library(directory: &std::path::Path) {
+    common::build_std_library(directory);
+}
+
 #[test]
 fn build_emits_runnable_elf_with_rules_write_and_output_semantics() {
     let directory = temporary_directory();
+    install_std_library(&directory);
     let source_path = directory.join("hello.es");
     fs::write(
         &source_path,
@@ -84,6 +91,7 @@ stop;
 #[test]
 fn build_supports_std_io_functions_and_short_aliases() {
     let directory = temporary_directory();
+    install_std_library(&directory);
     let source_path = directory.join("std_io.es");
     fs::write(
         &source_path,
@@ -132,6 +140,7 @@ stop;
 #[test]
 fn build_supports_blocking_std_input_rules_and_input_wrapper_return() {
     let directory = temporary_directory();
+    install_std_library(&directory);
     let source_path = directory.join("input.es");
     fs::write(
         &source_path,
@@ -209,6 +218,66 @@ fn debug_and_build_report_the_same_parser_error() {
     assert!(!build.status.success());
     assert_eq!(debug.stderr, build.stderr);
 
+    fs::remove_dir_all(directory).expect("clean isolated test directory");
+}
+
+#[test]
+fn debug_and_build_require_library_directory_and_std_declaration_file() {
+    let directory = temporary_directory();
+    let source_path = directory.join("library_import.es");
+    fs::write(
+        &source_path,
+        "from library import std\nint main() { return code -> 0 }\n",
+    )
+    .expect("write source");
+    let binary = env!("CARGO_BIN_EXE_easyscript");
+
+    for (expected, create_library_directory) in [
+        ("missing library directory", false),
+        ("library std header file (std.esh) not found", true),
+    ] {
+        if create_library_directory {
+            fs::create_dir(directory.join("library")).expect("create empty library directory");
+        }
+        let debug = Command::new(binary)
+            .arg("debug")
+            .arg(&source_path)
+            .output()
+            .expect("run debug");
+        let build = Command::new(binary)
+            .arg("build")
+            .arg(&source_path)
+            .current_dir(&directory)
+            .output()
+            .expect("run build");
+        assert!(!debug.status.success());
+        assert!(!build.status.success());
+        assert!(String::from_utf8_lossy(&debug.stderr).contains(expected));
+        assert_eq!(debug.stderr, build.stderr);
+    }
+
+    assert!(!directory.join("library/std.esh").exists());
+    fs::write(
+        directory.join("library/std.esh"),
+        include_str!("../../library/std.esh"),
+    )
+    .expect("install std declaration only");
+    let debug = Command::new(binary)
+        .arg("debug")
+        .arg(&source_path)
+        .output()
+        .expect("run debug without std binary");
+    let build = Command::new(binary)
+        .arg("build")
+        .arg(&source_path)
+        .current_dir(&directory)
+        .output()
+        .expect("run build without std binary");
+    assert!(!debug.status.success());
+    assert!(!build.status.success());
+    assert!(String::from_utf8_lossy(&debug.stderr).contains("std library package not found"));
+    assert_eq!(debug.stderr, build.stderr);
+    assert!(!directory.join("library/libes_std.ess").exists());
     fs::remove_dir_all(directory).expect("clean isolated test directory");
 }
 

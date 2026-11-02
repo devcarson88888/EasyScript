@@ -4,8 +4,8 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
-use easyscript_compiler::compile_to_elf;
-use easyscript_interpreter::execute;
+use easyscript_compiler::compile_to_elf_with_std_library;
+use easyscript_interpreter::{execute_with_std_library, library::validate_library_imports};
 use easyscript_parser::{lex, parse_tokens, Program};
 
 fn main() -> ExitCode {
@@ -40,12 +40,24 @@ fn main() -> ExitCode {
         return match read_source(&source_path) {
             Ok(source) => match parse_source(&source) {
                 Ok(program) => {
+                    let std_library_path =
+                        match validate_library_imports(&program, Path::new(&source_path)) {
+                            Ok(path) => path,
+                            Err(error) => {
+                                eprintln!("{error}");
+                                return ExitCode::FAILURE;
+                            }
+                        };
                     let Some(output_name) = Path::new(&source_path).file_stem() else {
                         eprintln!("Build error: source path has no file name.");
                         return ExitCode::FAILURE;
                     };
                     let output_path = Path::new(".").join(output_name);
-                    match compile_to_elf(&program, &output_path) {
+                    match compile_to_elf_with_std_library(
+                        &program,
+                        &output_path,
+                        std_library_path.as_deref(),
+                    ) {
                         Ok(()) => {
                             println!("Build success, output: ./{}", output_name.to_string_lossy());
                             ExitCode::SUCCESS
@@ -92,7 +104,14 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let result = match execute(&program) {
+    let std_library_path = match validate_library_imports(&program, Path::new(&source_path)) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let result = match execute_with_std_library(&program, std_library_path.as_deref()) {
         Ok(result) => result,
         Err(error) => {
             eprintln!("{error}");
@@ -100,8 +119,10 @@ fn main() -> ExitCode {
         }
     };
 
-    for output in result.output {
-        print!("{output}");
+    for (output, already_written) in result.output.into_iter().zip(result.output_already_written) {
+        if !already_written {
+            print!("{output}");
+        }
     }
     ExitCode::SUCCESS
 }

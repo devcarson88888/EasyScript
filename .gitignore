@@ -3,3 +3,6 @@
 /parser/target/
 /interpreter/target/
 /compiler/target/
+/stdlib/target/
+/archive/target/
+/tools/std-package/target/

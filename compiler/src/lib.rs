@@ -11,7 +11,15 @@ use easyscript_parser::ast::{
 };
 
 pub fn compile_to_elf(program: &Program, output_path: &Path) -> Result<(), String> {
-    let rust_source = generate_rust(program)?;
+    compile_to_elf_with_std_library(program, output_path, None)
+}
+
+pub fn compile_to_elf_with_std_library(
+    program: &Program,
+    output_path: &Path,
+    std_library_path: Option<&Path>,
+) -> Result<(), String> {
+    let rust_source = generate_rust(program, std_library_path)?;
     let temporary_output = output_path.with_extension(format!("tmp-{}", std::process::id()));
     let result = Command::new("rustc")
         .arg("--edition=2021")
@@ -58,7 +66,7 @@ pub fn compile_to_elf(program: &Program, output_path: &Path) -> Result<(), Strin
     Ok(())
 }
 
-fn generate_rust(program: &Program) -> Result<String, String> {
+fn generate_rust(program: &Program, std_library_path: Option<&Path>) -> Result<String, String> {
     let mut functions = Vec::new();
     let mut imported_std = false;
     for item in &program.items {
@@ -105,6 +113,17 @@ fn generate_rust(program: &Program) -> Result<String, String> {
     }
 
     let mut source = String::from(RUST_RUNTIME);
+    if imported_std {
+        let path = std_library_path.ok_or_else(|| {
+            "EasyScript AOT error: std library binary path was not provided".to_owned()
+        })?;
+        writeln!(
+            source,
+            "const EASYScript_STD_LIBRARY_PATH: &str = {:?};",
+            path.to_string_lossy()
+        )
+        .expect("writing to String cannot fail");
+    }
     for (index, function) in functions.iter().enumerate() {
         write_function(
             &mut source,
@@ -125,10 +144,16 @@ fn generate_rust(program: &Program) -> Result<String, String> {
     }
     source.push_str(
         "        _ => panic!(\"undefined function `{}`\", name),\n    }\n}\n\
-         fn main() {\n\
-             let result = es_function_",
+         fn main() {\n",
     );
-    write!(source, "{entry_index}(Vec::new());\n").expect("writing to String cannot fail");
+    if imported_std {
+        source.push_str("    load_std_library(EASYScript_STD_LIBRARY_PATH);\n");
+    }
+    writeln!(
+        source,
+        "    let result = es_function_{entry_index}(Vec::new());"
+    )
+    .expect("writing to String cannot fail");
     source.push_str(
         "    let exit_code = match result { Value::Number(code) => code as i32, _ => 0 };\n\
              std::process::exit(exit_code);\n\
@@ -596,9 +621,8 @@ fn unsupported(feature: &str, line: usize, column: usize) -> String {
 
 const RUST_RUNTIME: &str = r#"
 use std::collections::HashMap;
-use std::sync::Mutex;
-
-static STD_BUFFER: Mutex<Option<Value>> = Mutex::new(None);
+use std::ffi::{c_char, c_int, c_void, CString};
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug)]
 enum Value {
@@ -621,40 +645,82 @@ impl std::fmt::Display for Value {
     }
 }
 
+type WriteFunction = unsafe extern "C" fn(*const u8, usize) -> i32;
+type OutputFunction = unsafe extern "C" fn() -> i32;
+type InputFunction = unsafe extern "C" fn(*mut usize) -> *mut u8;
+
+struct StdApi {
+    _handle: *mut c_void,
+    write: WriteFunction,
+    output: OutputFunction,
+    input: InputFunction,
+}
+
+unsafe impl Sync for StdApi {}
+unsafe impl Send for StdApi {}
+
+static STD_API: OnceLock<StdApi> = OnceLock::new();
+
+#[link(name = "dl")]
+unsafe extern "C" {
+    fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+unsafe fn std_symbol<T: Copy>(handle: *mut c_void, name: &'static [u8]) -> T {
+    let symbol = dlsym(handle, name.as_ptr().cast());
+    if symbol.is_null() {
+        panic!("std library is missing symbol {}", String::from_utf8_lossy(&name[..name.len() - 1]));
+    }
+    std::mem::transmute_copy(&symbol)
+}
+
+fn load_std_library(path: &str) {
+    let path = CString::new(path).expect("std library path contains a null byte");
+    let handle = unsafe { dlopen(path.as_ptr(), 2) };
+    if handle.is_null() {
+        panic!("could not load std library {}", path.to_string_lossy());
+    }
+    let api = unsafe {
+        StdApi {
+            _handle: handle,
+            write: std_symbol(handle, b"es_std_write\0"),
+            output: std_symbol(handle, b"es_std_output\0"),
+            input: std_symbol(handle, b"es_std_input\0"),
+        }
+    };
+    STD_API.set(api).unwrap_or_else(|_| panic!("std library already loaded"));
+}
+
+fn std_api() -> &'static StdApi {
+    STD_API.get().expect("std library has not been loaded")
+}
+
 mod easyscript_std {
-    use super::{Value, STD_BUFFER};
-    use std::io::BufRead;
+    use super::{std_api, Value};
 
     pub fn input() -> Value {
-        let mut line = String::new();
-        std::io::stdin()
-            .lock()
-            .read_line(&mut line)
-            .expect("could not read from stdin");
-        if line.ends_with('\n') {
-            line.pop();
-            if line.ends_with('\r') {
-                line.pop();
-            }
+        let mut length = 0;
+        let value = unsafe { (std_api().input)(&mut length) };
+        if value.is_null() {
+            panic!("std.input failed to read from stdin");
         }
-        Value::String(line)
+        let bytes = unsafe { std::slice::from_raw_parts(value, length) }.to_vec();
+        Value::String(String::from_utf8(bytes).expect("std.input returned invalid UTF-8"))
     }
 
     pub fn write(value: Value) -> Value {
-        *STD_BUFFER.lock().expect("std buffer lock poisoned") = Some(value);
+        let value = value.to_string();
+        let result = unsafe { (std_api().write)(value.as_ptr(), value.len()) };
+        assert_eq!(result, 0, "std.write failed");
         Value::Unit
     }
 
     pub fn output() -> Value {
-        let value = STD_BUFFER
-            .lock()
-            .expect("std buffer lock poisoned")
-            .clone()
-            .expect("std.output() called before std.write() populated the global buffer");
-        println!("{value}");
+        let result = unsafe { (std_api().output)() };
+        assert_eq!(result, 0, "std.output failed");
         Value::Unit
     }
-
 }
 
 fn get(environment: &HashMap<String, Value>, name: &str) -> Value {

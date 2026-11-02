@@ -8,6 +8,7 @@ name = "easyscript"
 path = "src/main.rs"
 
 [dependencies]
+easyscript-archive = { path = "../archive" }
 easyscript-compiler = { path = "../compiler" }
 easyscript-lexer = { path = "../lexer" }
 easyscript-parser = { path = "../parser" }

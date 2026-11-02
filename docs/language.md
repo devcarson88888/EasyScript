@@ -16,8 +16,8 @@ active system linux;
 from library import std;
 
 def println(a=std) {
-    rules! write -> a
-    rules! output -> a
+    rules! std::write -> a
+    rules! std::output -> a
 }
 
 int main() {
@@ -28,7 +28,10 @@ stop;
 ```
 
 Import the standard library with `from library import std;`. Prefer the
-explicit calls `std.write(value)` and `std.output()`: `std.write` stores a
+qualified forms `rules! std::write -> value`, `rules! std::output -> a`, and
+`rules! std::input -> name`; direct member calls are written
+`std.write(value)` and `std.output()` in the current expression syntax.
+`std.write` stores a
 value in the shared output buffer without printing, while `std.output` prints
 the current buffer. `println` is not part of `std`; define it as an EasyScript
 `def` function that calls `std.write` followed by `std.output`. The shorter
@@ -36,7 +39,45 @@ the current buffer. `println` is not part of `std`; define it as an EasyScript
 using them without the `std.` prefix is not recommended; the prefix makes the
 source of these functions explicit.
 
-`rules! write -> value` and `rules! output -> a` are syntax sugar for calls to
+The standard library is a separate Rust `cdylib` crate in `stdlib/`. Build it
+independently, then package the platform libraries using the in-process
+libarchive tool:
+
+```sh
+cargo build --manifest-path stdlib/Cargo.toml --release
+cargo run --manifest-path tools/std-package/Cargo.toml -- \
+  stdlib/target/release/libes_std.so path/to/es_std.dll \
+  examples/library/libes_std.ess
+```
+
+The `.ess` is an uncompressed tar archive whose root contains exactly
+`libes_std.so` and `es_std.dll`, with no subdirectories. The interpreter extracts
+only the current platform library and caches it; it does not invoke an external
+tar command. The host must provide a loadable libarchive library (on Windows,
+`archive.dll`). The interpreter and AOT-generated program do not contain the IO
+implementation.
+
+The standard library is declared in the UTF-8 header file
+`library/std.esh`, located in a `library` directory beside the `.es` script:
+
+```es
+// ===== EasyScript STD Standard Library ===== //
+// Namespace : std
+namespace std {
+    extern std write -> es_std_write
+    extern std input -> es_std_input
+    extern std output -> es_std_output
+}
+```
+
+These are symbol declarations only, with no implementations. EasyScript does
+not create the directory or files automatically: a missing directory reports
+`missing library directory`, and a missing header reports
+`library std header file (std.esh) not found`. `examples/hello.es` uses the
+header at `examples/library/std.esh`; other scripts need a sibling `library/`
+containing `std.esh` and `libes_std.ess`.
+
+`rules! std::write -> value` and `rules! std::output -> a` are syntax sugar for calls to
 `std.write(value)` and `std.output(a)`. Use write and output as a pair; calling
 output before writing a value leaves the buffer uninitialized and reports a
 runtime error.

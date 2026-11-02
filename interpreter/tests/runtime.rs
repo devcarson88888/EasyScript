@@ -1,8 +1,33 @@
-use easyscript_interpreter::{run_source, Value};
+use easyscript_interpreter::{run_source, run_source_with_std_library, Value};
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+mod common;
+
+fn isolated_std_library() -> std::path::PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "easyscript-runtime-std-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).expect("create isolated std directory");
+    common::build_std_library(&directory)
+}
+
+fn run_with_std_binary(
+    source: &str,
+) -> Result<easyscript_interpreter::RunResult, easyscript_interpreter::RunError> {
+    let library_path = isolated_std_library();
+    let result = run_source_with_std_library(source, &library_path);
+    fs::remove_dir_all(library_path.parent().expect("std library parent"))
+        .expect("clean isolated std directory");
+    result
+}
 
 fn run_with_std(
     source: &str,
@@ -24,7 +49,7 @@ def println(a=std) {
     } else {
         format!("{source}{prelude}")
     };
-    run_source(&source)
+    run_with_std_binary(&source)
 }
 
 #[test]
@@ -186,7 +211,7 @@ stop;
 
 #[test]
 fn rules_write_stores_without_printing_until_output_reads_a() {
-    let result = run_source(
+    let result = run_with_std_binary(
         r#"from library import std
 int main() {
     rules! write -> "stored only"
@@ -199,7 +224,7 @@ int main() {
 
 #[test]
 fn std_io_functions_and_compatible_short_aliases_use_the_shared_buffer() {
-    let result = run_source(
+    let result = run_with_std_binary(
         r#"from library import std;
 def println(value=auto) {
     std.write(value);
@@ -225,7 +250,7 @@ int main() {
 
 #[test]
 fn std_output_before_write_reports_the_uninitialized_buffer() {
-    let error = run_source(
+    let error = run_with_std_binary(
         r#"from library import std;
 int main() {
     std.output();
@@ -268,6 +293,7 @@ stop
         std::process::id()
     ));
     fs::create_dir(&directory).expect("create isolated test directory");
+    common::build_std_library(&directory);
     let source_path = directory.join("input.es");
     fs::write(&source_path, source).expect("write script");
     let mut child = Command::new(env!("CARGO_BIN_EXE_easyscript"))
@@ -297,7 +323,7 @@ stop
 
 #[test]
 fn std_short_aliases_do_not_replace_user_defined_functions() {
-    let result = run_source(
+    let result = run_with_std_binary(
         r#"def write(value=auto) {
     return code -> value;
 }
@@ -317,7 +343,7 @@ int main() {
 
 #[test]
 fn println_is_not_a_std_member_function() {
-    let error = run_source(
+    let error = run_with_std_binary(
         r#"from library import std;
 int main() {
     std.println("not part of std");
@@ -363,7 +389,7 @@ stop
 "#;
 
     for source in [semicolon_source, newline_source] {
-        let result = run_source(source).unwrap();
+        let result = run_with_std_binary(source).unwrap();
         assert_eq!(result.output, ["Hello World!\n\n"]);
         assert!(matches!(result.value, Some(Value::Number(0))));
     }

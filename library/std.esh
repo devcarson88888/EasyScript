@@ -1,0 +1,7 @@
+// ===== EasyScript STD Standard Library ===== //
+// Namespace : std
+namespace std {
+    extern std write -> es_std_write
+    extern std input -> es_std_input
+    extern std output -> es_std_output
+}
