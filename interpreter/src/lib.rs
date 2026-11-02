@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::io::BufRead;
 use std::rc::Rc;
 
 type Env = Rc<RefCell<Scope>>;
@@ -132,6 +133,7 @@ pub enum NativeFunction {
     Range,
     Int,
     Str,
+    StdInput,
     StdWrite,
     StdOutput,
 }
@@ -494,7 +496,24 @@ impl Interpreter {
                             "`rules!` IO commands require `from library import std;`",
                         ));
                     }
-                    let value = self.eval(value, environment)?;
+                    let input_target = if operation == "std::input" {
+                        match &value.kind {
+                            ExprKind::Identifier(target) => Some(target.as_str()),
+                            _ => {
+                                return Err(runtime_error(
+                                    (statement.line, statement.column),
+                                    "`rules! std::input ->` requires a destination variable",
+                                ))
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let value = if input_target.is_none() {
+                        self.eval(value, environment)?
+                    } else {
+                        Value::Null
+                    };
                     match operation.as_str() {
                         "write" => {
                             Scope::assign(environment, "a", value.clone());
@@ -505,6 +524,33 @@ impl Interpreter {
                             )?;
                         }
                         "output" => {
+                            self.call_native(
+                                NativeFunction::StdOutput,
+                                vec![value],
+                                (statement.line, statement.column),
+                            )?;
+                        }
+                        "std::input" => {
+                            let input = self.call_native(
+                                NativeFunction::StdInput,
+                                Vec::new(),
+                                (statement.line, statement.column),
+                            )?;
+                            Scope::assign(
+                                environment,
+                                input_target.expect("validated input target"),
+                                input.clone(),
+                            );
+                            return Ok(Flow::Return(input));
+                        }
+                        "std::write" => {
+                            self.call_native(
+                                NativeFunction::StdWrite,
+                                vec![value],
+                                (statement.line, statement.column),
+                            )?;
+                        }
+                        "std::output" => {
                             self.call_native(
                                 NativeFunction::StdOutput,
                                 vec![value],
@@ -892,6 +938,13 @@ impl Interpreter {
                 if let Some(instance) = bound_self {
                     Scope::define(&environment, "self", instance);
                 }
+                let mut arguments = arguments;
+                if arguments.is_empty()
+                    && function.parameters.len() == 1
+                    && rules_input_target(&function) == Some(function.parameters[0].name.as_str())
+                {
+                    arguments.push(Value::Null);
+                }
                 self.bind_parameters(&environment, &function.parameters, arguments, at)?;
                 match self.execute_block(&function.body, &environment)? {
                     Flow::Return(value) => Ok(value),
@@ -1009,6 +1062,29 @@ impl Interpreter {
             NativeFunction::Str => {
                 expect_argument_count(&arguments, 1, at)?;
                 Ok(Value::String(arguments[0].to_string()))
+            }
+            NativeFunction::StdInput => {
+                if !self.std_imported {
+                    return Err(runtime_error(
+                        at,
+                        "std IO functions require `from library import std;`",
+                    ));
+                }
+                expect_argument_count(&arguments, 0, at)?;
+                let mut input = String::new();
+                std::io::stdin()
+                    .lock()
+                    .read_line(&mut input)
+                    .map_err(|error| {
+                        runtime_error(at, format!("could not read from stdin: {error}"))
+                    })?;
+                if input.ends_with('\n') {
+                    input.pop();
+                    if input.ends_with('\r') {
+                        input.pop();
+                    }
+                }
+                Ok(Value::String(input))
             }
             NativeFunction::StdWrite => {
                 if !self.std_imported {
@@ -1835,6 +1911,21 @@ fn statement_position(statement: &Statement) -> (usize, usize) {
         Statement::Join(node) => (node.line, node.column),
         Statement::Empty(node) => (node.line, node.column),
     }
+}
+
+fn rules_input_target(function: &Function) -> Option<&str> {
+    function.body.statements.iter().find_map(|statement| {
+        let Statement::Rules(statement) = statement else {
+            return None;
+        };
+        if statement.operation.as_deref() != Some("std::input") {
+            return None;
+        }
+        match &statement.value.as_ref()?.kind {
+            ExprKind::Identifier(name) => Some(name.as_str()),
+            _ => None,
+        }
+    })
 }
 
 fn runtime_error(at: (usize, usize), message: impl Into<String>) -> RuntimeError {

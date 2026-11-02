@@ -41,6 +41,23 @@ source of these functions explicit.
 output before writing a value leaves the buffer uninitialized and reports a
 runtime error.
 
+`rules! std::input -> name` blocks until one line is entered in the terminal,
+stores that line as a string in `name`, and returns it from the containing
+function. This supports a small wrapper whose output parameter is omitted at
+the call site:
+
+```es
+def input(d) {
+    rules! std::input -> d
+}
+
+int main() {
+    d = auto -> input()
+}
+```
+
+The trailing line ending is removed from the returned string.
+
 ## Commands
 
 From the repository root:

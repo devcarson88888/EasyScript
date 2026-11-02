@@ -391,18 +391,30 @@ impl Parser {
                     TokenKind::Identifier(name) => name,
                     _ => unreachable!("expect_identifier_token checks the token kind"),
                 };
-                self.expect(&TokenKind::Assign, "`=` between parameter name and type")?;
-                let ty = self.parse_type()?;
-                let default_value = if self.matches(&TokenKind::Arrow) {
-                    Some(self.parse_expression()?)
-                } else if ty.name == "std" {
-                    Some(Expr {
-                        line: ty.line,
-                        column: ty.column,
-                        kind: ExprKind::Identifier("std".to_owned()),
-                    })
+                let (ty, default_value) = if self.matches(&TokenKind::Assign) {
+                    let ty = self.parse_type()?;
+                    let default_value = if self.matches(&TokenKind::Arrow) {
+                        Some(self.parse_expression()?)
+                    } else if ty.name == "std" {
+                        Some(Expr {
+                            line: ty.line,
+                            column: ty.column,
+                            kind: ExprKind::Identifier("std".to_owned()),
+                        })
+                    } else {
+                        None
+                    };
+                    (ty, default_value)
                 } else {
-                    None
+                    (
+                        TypeName {
+                            line: name_token.line,
+                            column: name_token.column,
+                            name: "auto".to_owned(),
+                            generic_arguments: Vec::new(),
+                        },
+                        None,
+                    )
                 };
                 parameters.push(Parameter {
                     line: name_token.line,
@@ -832,15 +844,36 @@ impl Parser {
 
     fn parse_rules(&mut self) -> Result<Statement, ParseError> {
         let start = self.expect(&TokenKind::RulesBang, "`rules!`")?;
-        let operation = self.expect_identifier("`write` or `output` after `rules!`")?;
-        if operation != "write" && operation != "output" {
-            return Err(self.error_at(
-                &self.tokens[self.current - 1],
-                "expected `write` or `output` after `rules!`",
-            ));
-        }
+        let operation = if self.matches(&TokenKind::Std) {
+            self.expect(&TokenKind::Colon, "`::` after `std`")?;
+            self.expect(&TokenKind::Colon, "`::` after `std:`")?;
+            let function = self.expect_identifier("a std function name after `std::`")?;
+            if !matches!(function.as_str(), "input" | "write" | "output") {
+                return Err(self.error_at(
+                    &self.tokens[self.current - 1],
+                    "expected `input`, `write`, or `output` after `std::`",
+                ));
+            }
+            format!("std::{function}")
+        } else {
+            let operation = self.expect_identifier("`write` or `output` after `rules!`")?;
+            if operation != "write" && operation != "output" {
+                return Err(self.error_at(
+                    &self.tokens[self.current - 1],
+                    "expected `write` or `output` after `rules!`",
+                ));
+            }
+            operation
+        };
         self.expect(&TokenKind::Arrow, "`->` after the rules operation")?;
         let value = self.parse_expression()?;
+        if operation == "std::input" && !matches!(value.kind, ExprKind::Identifier(_)) {
+            return Err(ParseError {
+                message: "`rules! std::input ->` requires a destination variable".to_owned(),
+                line: value.line,
+                column: value.column,
+            });
+        }
         self.consume_statement_terminator("`;` after the rules command")?;
 
         Ok(Statement::Rules(RulesStatement {

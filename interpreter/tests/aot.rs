@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temporary_directory() -> PathBuf {
@@ -124,6 +125,65 @@ stop;
         String::from_utf8_lossy(&run.stdout),
         "explicit\nalias\nprintln\n"
     );
+
+    fs::remove_dir_all(directory).expect("clean isolated test directory");
+}
+
+#[test]
+fn build_supports_blocking_std_input_rules_and_input_wrapper_return() {
+    let directory = temporary_directory();
+    let source_path = directory.join("input.es");
+    fs::write(
+        &source_path,
+        r#"active system linux
+from library import std
+def input(d) {
+    rules! std::input -> d
+}
+def println(a) {
+    rules! std::write -> a
+    rules! std::output -> a
+}
+int main() {
+    d = auto -> input()
+    println("Hi" + d)
+    return code -> 0
+}
+stop
+"#,
+    )
+    .expect("write source");
+
+    let build = Command::new(env!("CARGO_BIN_EXE_easyscript"))
+        .arg("build")
+        .arg(&source_path)
+        .current_dir(&directory)
+        .output()
+        .expect("run easyscript build");
+    assert!(
+        build.status.success(),
+        "build failed: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let mut run = Command::new(directory.join("input"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run generated ELF");
+    run.stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"Ada Lovelace\n")
+        .expect("write input line");
+    let output = run.wait_with_output().expect("wait for generated ELF");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "HiAda Lovelace\n");
 
     fs::remove_dir_all(directory).expect("clean isolated test directory");
 }

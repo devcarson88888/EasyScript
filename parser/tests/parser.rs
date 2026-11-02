@@ -1335,3 +1335,36 @@ int main() {
 
     assert!(parse("int main() { if (True) {} }").is_ok());
 }
+
+#[test]
+fn parses_qualified_std_input_rules_in_user_defined_input_wrapper() {
+    let program = parse(
+        r#"active system linux
+from library import std
+def input(d) {
+    rules! std::input -> d
+}
+def println(a) {
+    rules! std::write -> a
+    rules! std::output -> a
+}
+int main() {
+    d = auto -> input()
+    println("Hi" + d)
+}
+stop
+"#,
+    )
+    .unwrap();
+    let TopLevelItem::Function(input) = &program.items[2] else {
+        panic!("expected input function");
+    };
+    let Statement::Rules(rule) = &input.body.statements[0] else {
+        panic!("expected std input rules command");
+    };
+    assert_eq!(rule.operation.as_deref(), Some("std::input"));
+    assert!(matches!(
+        &rule.value.as_ref().unwrap().kind,
+        ExprKind::Identifier(name) if name == "d"
+    ));
+}

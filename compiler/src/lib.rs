@@ -178,6 +178,15 @@ fn validate_block(
                 }
                 if let Some(value) = &statement.value {
                     validate_expr(value, imported_std, functions)?;
+                    if statement.operation.as_deref() == Some("std::input")
+                        && !matches!(value.kind, ExprKind::Identifier(_))
+                    {
+                        return Err(unsupported(
+                            "`rules! std::input` destination",
+                            value.line,
+                            value.column,
+                        ));
+                    }
                 }
             }
             Statement::Empty(_) => {}
@@ -288,6 +297,8 @@ fn write_function(
     for (parameter_index, parameter) in function.parameters.iter().enumerate() {
         let default = if let Some(default_value) = &parameter.default_value {
             format!("{{ {} }}", emit_expr(default_value, functions)?)
+        } else if rules_input_target(function) == Some(parameter.name.as_str()) {
+            "Value::Unit".to_owned()
         } else {
             format!(
                 "panic!(\"missing argument `{}` to `{}`\")",
@@ -305,6 +316,21 @@ fn write_function(
     write_block(source, &function.body, functions)?;
     source.push_str("Value::Unit\n}\n");
     Ok(())
+}
+
+fn rules_input_target(function: &Function) -> Option<&str> {
+    function.body.statements.iter().find_map(|statement| {
+        let Statement::Rules(statement) = statement else {
+            return None;
+        };
+        if statement.operation.as_deref() != Some("std::input") {
+            return None;
+        }
+        match &statement.value.as_ref()?.kind {
+            ExprKind::Identifier(name) => Some(name.as_str()),
+            _ => None,
+        }
+    })
 }
 
 fn write_block(
@@ -377,12 +403,25 @@ fn write_block(
                 })?;
                 let expression = emit_expr(value, functions)?;
                 match operation {
-                    "write" => writeln!(
+                    "write" | "std::write" => writeln!(
                         source,
                         "{{ let value = {expression}; env.insert(\"a\".to_owned(), value.clone()); easyscript_std::write(value); }}"
                     ),
-                    "output" => {
+                    "output" | "std::output" => {
                         writeln!(source, "{{ let _ = {expression}; easyscript_std::output(); }}")
+                    }
+                    "std::input" => {
+                        let ExprKind::Identifier(target) = &value.kind else {
+                            return Err(unsupported(
+                                "`rules! std::input` destination",
+                                value.line,
+                                value.column,
+                            ));
+                        };
+                        writeln!(
+                            source,
+                            "{{ let value = easyscript_std::input(); env.insert({target:?}.to_owned(), value.clone()); return value; }}"
+                        )
                     }
                     _ => {
                         return Err(unsupported(
@@ -584,6 +623,22 @@ impl std::fmt::Display for Value {
 
 mod easyscript_std {
     use super::{Value, STD_BUFFER};
+    use std::io::BufRead;
+
+    pub fn input() -> Value {
+        let mut line = String::new();
+        std::io::stdin()
+            .lock()
+            .read_line(&mut line)
+            .expect("could not read from stdin");
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        Value::String(line)
+    }
 
     pub fn write(value: Value) -> Value {
         *STD_BUFFER.lock().expect("std buffer lock poisoned") = Some(value);

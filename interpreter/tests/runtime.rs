@@ -1,4 +1,8 @@
 use easyscript_interpreter::{run_source, Value};
+use std::fs;
+use std::io::Write;
+use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn run_with_std(
     source: &str,
@@ -236,6 +240,59 @@ int main() {
         }
         easyscript_interpreter::RunError::Parse(error) => panic!("unexpected parse error: {error}"),
     }
+}
+
+#[test]
+fn std_input_rules_read_one_line_and_input_wrapper_returns_it() {
+    let source = r#"active system linux
+from library import std
+def input(d) {
+    rules! std::input -> d
+}
+def println(a) {
+    rules! std::write -> a
+    rules! std::output -> a
+}
+int main() {
+    d = auto -> input()
+    println("Hi" + d)
+}
+stop
+"#;
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "easyscript-input-test-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).expect("create isolated test directory");
+    let source_path = directory.join("input.es");
+    fs::write(&source_path, source).expect("write script");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_easyscript"))
+        .arg("debug")
+        .arg(&source_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start easyscript process");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"Ada Lovelace\r\n")
+        .expect("write input line");
+
+    let output = child.wait_with_output().expect("wait for interpreter");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "HiAda Lovelace\n");
+    fs::remove_dir_all(directory).expect("clean isolated test directory");
 }
 
 #[test]
