@@ -279,7 +279,6 @@ pub struct Interpreter {
     globals: Env,
     output: Vec<String>,
     output_already_written: Vec<bool>,
-    steps: usize,
     std_imported: bool,
     std_library: Option<library::StdLibrary>,
     std_library_path: Option<std::path::PathBuf>,
@@ -311,7 +310,6 @@ impl Interpreter {
             globals,
             output: Vec::new(),
             output_already_written: Vec::new(),
-            steps: 0,
             std_imported: false,
             std_library: None,
             std_library_path: None,
@@ -322,7 +320,6 @@ impl Interpreter {
     pub fn execute(&mut self, program: &Program) -> Result<RunResult, RuntimeError> {
         self.output.clear();
         self.output_already_written.clear();
-        self.steps = 0;
         self.std_imported = false;
         let mut entry_point = None;
         for item in &program.items {
@@ -430,7 +427,6 @@ impl Interpreter {
     fn execute_block(&mut self, block: &Block, parent: &Env) -> Result<Flow, RuntimeError> {
         let environment = Scope::new(Some(parent.clone()));
         for statement in &block.statements {
-            self.tick(statement_position(statement))?;
             let flow = self.execute_statement(statement, &environment)?;
             if !matches!(flow, Flow::Normal) {
                 return Ok(flow);
@@ -444,7 +440,6 @@ impl Interpreter {
         statement: &Statement,
         environment: &Env,
     ) -> Result<Flow, RuntimeError> {
-        self.tick(statement_position(statement))?;
         match statement {
             Statement::Assignment(assignment) => {
                 let value = self.eval(&assignment.value, environment)?;
@@ -654,7 +649,6 @@ impl Interpreter {
     }
 
     fn eval(&mut self, expression: &Expr, environment: &Env) -> Result<Value, RuntimeError> {
-        self.tick(position(expression))?;
         match &expression.kind {
             ExprKind::Number(number) => number.parse::<i64>().map(Value::Number).map_err(|_| {
                 runtime_error(
@@ -1592,14 +1586,6 @@ impl Interpreter {
             ));
         }
         Ok(value)
-    }
-
-    fn tick(&mut self, at: (usize, usize)) -> Result<(), RuntimeError> {
-        self.steps += 1;
-        if self.steps > 1_000_000 {
-            return Err(runtime_error(at, "execution step limit exceeded"));
-        }
-        Ok(())
     }
 }
 

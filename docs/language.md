@@ -3,6 +3,14 @@
 EasyScript source files use the `.es` extension. Programs are parsed with the
 shared lexer/parser crates and run through the `easyscript` CLI.
 
+## Execution and resource behavior
+
+The interpreter and AOT-generated programs execute loops and output as written.
+They impose no execution-step, time, iteration, or output-count limits, and do
+not throttle or automatically interrupt programs. Infinite loops and sustained
+output continue until the operating system stops the process or the user
+interrupts it (SIGINT / Ctrl+C).
+
 ## Program structure
 
 The top level may contain platform declarations, library imports, `def`

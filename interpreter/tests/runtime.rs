@@ -76,6 +76,22 @@ fn evaluates_arithmetic_conditionals_and_while_loops_with_dynamic_variables() {
 }
 
 #[test]
+fn executes_more_than_one_million_loop_iterations() {
+    let result = run_source(
+        r#"int main() {
+    value = int -> 0;
+    while (value < 1000001) {
+        value = int -> value + 1;
+    }
+    return code -> value;
+}
+"#,
+    )
+    .unwrap();
+    assert!(matches!(result.value, Some(Value::Number(1_000_001))));
+}
+
+#[test]
 fn calls_functions_lambdas_and_builtin_functions() {
     let result = run_with_std(
         r#"def add(a=int, b=int) {
